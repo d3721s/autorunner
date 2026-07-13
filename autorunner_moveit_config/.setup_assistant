@@ -1,0 +1,25 @@
+moveit_setup_assistant_config:
+  urdf:
+    package: autorunner_description
+    relative_path: urdf/AutoRunner/autorunner_gazebo.urdf
+  srdf:
+    relative_path: config/autorunner.srdf
+  package_settings:
+    author_name: runyu
+    author_email: runyuan@uni-ubi.com
+    generated_timestamp: 1783936802
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity
+  modified_urdf:
+    xacros:
+      - control_xacro
+  control_xacro:
+    command:
+      - position
+    state:
+      - position
+      - velocity

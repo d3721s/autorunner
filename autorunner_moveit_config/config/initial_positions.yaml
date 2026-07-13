@@ -1,0 +1,9 @@
+# Default initial positions for autorunner's ros2_control fake system
+
+initial_positions:
+  joint1: 0.0
+  joint2: 1.5708
+  joint3: -1.4803
+  joint4: 0.0
+  joint5: 0.0
+  joint6: 0.0

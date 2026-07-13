@@ -1,0 +1,23 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="autorunner">
+    <xacro:arg name="initial_positions_file" default="$(find autorunner_moveit_config)/config/initial_positions.yaml" />
+    <xacro:arg name="controllers_file" default="$(find autorunner_moveit_config)/config/ros2_controllers.yaml" />
+
+    <!-- Import autorunner urdf file -->
+    <xacro:include filename="$(find autorunner_description)/urdf/AutoRunner/autorunner_gazebo.urdf" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="autorunner.ros2_control.xacro" />
+
+    <!-- Use the Gazebo (ign) hardware plugin instead of mock components -->
+    <xacro:autorunner_ros2_control name="GazeboSystem"
+        initial_positions_file="$(arg initial_positions_file)"
+        hardware_plugin="ign_ros2_control/IgnitionSystem"/>
+
+    <!-- Gazebo plugin that runs the controller_manager inside the simulation -->
+    <gazebo>
+        <plugin filename="libign_ros2_control-system.so" name="ign_ros2_control::IgnitionROS2ControlPlugin">
+            <parameters>$(arg controllers_file)</parameters>
+        </plugin>
+    </gazebo>
+</robot>
