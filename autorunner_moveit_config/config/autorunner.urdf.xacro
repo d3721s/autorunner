@@ -1,0 +1,14 @@
+<?xml version="1.0"?>
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="autorunner">
+    <xacro:arg name="initial_positions_file" default="initial_positions.yaml" />
+
+    <!-- Import autorunner urdf file -->
+    <xacro:include filename="$(find autorunner_description)/urdf/AutoRunner/autorunner_gazebo.urdf" />
+
+    <!-- Import control_xacro -->
+    <xacro:include filename="autorunner.ros2_control.xacro" />
+
+
+    <xacro:autorunner_ros2_control name="FakeSystem" initial_positions_file="$(arg initial_positions_file)"/>
+
+</robot>
