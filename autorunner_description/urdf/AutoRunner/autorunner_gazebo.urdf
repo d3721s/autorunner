@@ -1,0 +1,260 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="autorunner">
+  <link name="world" />
+  <link name="u1_frame">
+    <visual>
+      <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/u1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="u1_frame_material">
+        <color rgba="0.45 0.48 0.52 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/u1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="world_to_u1_frame" type="fixed">
+    <parent link="world" />
+    <child link="u1_frame" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.00473641164191482 2.56829134630247E-05 0.041451518036016" rpy="0 0 0" />
+      <mass value="1.02" />
+      <inertia ixx="0.00267433" ixy="-0.00000073" ixz="-0.00017389" iyy="0.00282612" iyz="0.0000004" izz="0.00089624" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/base_link.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/base_link.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="u1_frame_to_base_link" type="fixed">
+    <parent link="u1_frame" />
+    <child link="base_link" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+  <link name="link1">
+    <inertial>
+      <origin xyz="0.00053 -0.00039 -0.00315" rpy="0 0 0" />
+      <mass value="0.71" />
+      <inertia ixx="0.00050027" ixy="0.00000078" ixz="0.00000626" iyy="0.00040879" iyz="0.00000462" izz="0.00045802" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link1.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link1.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint1" type="revolute">
+    <origin xyz="0 0 0.123" rpy="0 0 3.1415926" />
+    <parent link="base_link" />
+    <child link="link1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.6179938" upper="2.6179938" effort="100" velocity="5" />
+  </joint>
+  <link name="link2">
+    <inertial>
+      <origin xyz="0.21856 -0.00859 0.00227" rpy="0 0 0" />
+      <mass value="1.16" />
+      <inertia ixx="0.00111915" ixy="0.00182916" ixz="0.00019233" iyy="0.06763251" iyz="0.00000767" izz="0.067559" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link2.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link2.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint2" type="revolute">
+    <origin xyz="0 0 0" rpy="-1.5707963 -3.005806 -3.1415926" />
+    <parent link="link1" />
+    <child link="link2" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="3.1415926" effort="100" velocity="5" />
+  </joint>
+  <link name="link3">
+    <inertial>
+      <origin xyz="0.2014 -0.00418 -0.00141" rpy="0 0 0" />
+      <mass value="0.67" />
+      <inertia ixx="0.00033471" ixy="0.00026891" ixz="0.00013918" iyy="0.03360411" iyz="0.00000052" izz="0.03356941" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link3.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link3.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint3" type="revolute">
+    <origin xyz="0.28503 0 0" rpy="0 0 2.8380798" />
+    <parent link="link2" />
+    <child link="link3" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.9670597" upper="0" effort="100" velocity="5" />
+  </joint>
+  <link name="link4">
+    <inertial>
+      <origin xyz="0.059 -0.05831 0.002" rpy="0 0 0" />
+      <mass value="0.39" />
+      <inertia ixx="0.00120173" ixy="0.00138165" ixz="0.00001187" iyy="0.00209324" iyz="0.00000217" izz="0.00307814" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link4.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link4.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint4" type="revolute">
+    <origin xyz="0.27364 0 0" rpy="0 0 0.0806342" />
+    <parent link="link3" />
+    <child link="link4" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.553343" upper="1.553343" effort="100" velocity="5" />
+  </joint>
+  <link name="link5">
+    <inertial>
+      <origin xyz="0.00005 -0.01282 -0.00429" rpy="0 0 0" />
+      <mass value="0.35" />
+      <inertia ixx="0.00022660" ixy="0.00000019" ixz="0.00000005" iyy="0.00017740" iyz="0.00000085" izz="0.00019425" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link5.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link5.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint5" type="revolute">
+    <origin xyz="0.07466 0 0" rpy="-1.5707963 1.5707963 0" />
+    <parent link="link4" />
+    <child link="link5" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.553343" upper="1.553343" effort="100" velocity="5" />
+  </joint>
+  <link name="link6">
+    <inertial>
+      <origin xyz="0 0 -0.0035" rpy="0 0 0" />
+      <mass value="0.007" />
+      <inertia ixx="0.00152112" ixy="0.00000202" ixz="0.00000261" iyy="0.00138626" iyz="0.00000002" izz="0.00031152" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/dae/link6.dae" />
+      </geometry>
+      <material name="">
+        <color rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/link6.stl" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint6" type="revolute">
+    <origin xyz="0 -0.035 0" rpy="1.5707963 0 0" />
+    <parent link="link5" />
+    <child link="link6" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.0943951" upper="2.0943951" effort="100" velocity="5" />
+  </joint>
+  <link name="tool">
+    <inertial>
+      <origin xyz="0 -0.03 0.03" rpy="0 0 0" />
+      <mass value="0.1" />
+      <inertia ixx="0.00011" ixy="0" ixz="0" iyy="0.00015" iyz="0" izz="0.00021" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/tool.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="tool_black">
+        <color rgba="0.152941 0.152941 0.152941 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/tool.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="link6_to_tool" type="fixed">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="link6" />
+    <child link="tool" />
+  </joint>
+  <link name="tcp" />
+  <joint name="tool_to_tcp" type="fixed">
+    <origin xyz="0 0 0.1602" rpy="0 0 0" />
+    <parent link="tool" />
+    <child link="tcp" />
+  </joint>
+</robot>
