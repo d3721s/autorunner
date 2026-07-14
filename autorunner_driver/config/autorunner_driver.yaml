@@ -1,0 +1,13 @@
+autorunner_driver:
+  ros__parameters:
+    can_interface: "can0"          # 调试时可用 vcan0
+    joint_names: [joint1, joint2, joint3, joint4, joint5, joint6]
+    auto_enable: true              # 启动后自动执行 0x471 使能 + 0x151 进 CAN 模式
+    install_pos: 1                 # 安装位置 1水平正装 2侧装左 3侧装右
+    default_speed_percent: 20      # Movex 命令 speed=0 时的兜底速度百分比
+    high_speed_publish_rate: 100.0 # Hz, 驱动器高速反馈聚合发布频率
+    low_speed_publish_rate: 10.0   # Hz, 驱动器低速反馈聚合发布频率
+    publish_raw_frames: false      # true 时转发原始帧到 ~/raw_rx (诊断用)
+    feedback_id_offset: 0          # 反馈指令 ID 偏移 0x00/0x10/0x20 (见协议 0x470)
+    control_id_offset: 0           # 控制指令 ID 偏移 0x00/0x10/0x20
+    init_retry_count: 3            # 初始化序列最大重试次数
