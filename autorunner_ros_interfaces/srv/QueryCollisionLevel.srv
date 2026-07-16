@@ -1,0 +1,5 @@
+# 查询碰撞防护等级 (CAN 0x477 byte0=0x02 -> 应答 0x47B)
+---
+bool success      #收到 0x47B 应答为 true, 超时为 false
+uint8[6] level    #J1~J6 碰撞防护等级0~8 0代表不检测碰撞
+string message

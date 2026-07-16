@@ -1,0 +1,16 @@
+# 圆弧运动 MOVE C (三点 0x152~154+0x158 x3 + 0x151 move_mode=0x03) 起点=当前末端位姿
+# Goal  起点由驱动自动填充为当前末端位姿反馈
+Armpose mid      #圆弧中点
+Armpose end      #圆弧终点
+uint8 speed      #运动速度百分比1~100 (0 用驱动默认)
+---
+# Result
+bool success
+uint8 arm_status    #结束时机械臂状态 0x2A1 byte1 (0正常 2无解 3奇异点 4超限 7碰撞...)
+string message
+Armpose final_pose  #结束时末端位姿
+---
+# Feedback
+Armpose current_pose      #当前末端位姿
+float32[6] current_joint  #当前关节角 rad
+uint8 motion_status       #运动状态 0x2A1 byte4 (0到达 1未到达)

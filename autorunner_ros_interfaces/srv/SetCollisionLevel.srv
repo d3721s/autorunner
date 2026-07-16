@@ -1,0 +1,7 @@
+# 设置碰撞防护等级 (CAN 0x47A) verify=true 时发 0x477(byte0=0x02) 等 0x47B 回读校验
+uint8[6] level         #J1~J6 碰撞防护等级0~8 0代表不检测碰撞
+bool verify            #true: 下发后主动查询 0x47B 校验并回填 applied_level
+---
+bool success           #verify=false 下发成功即 true; verify=true 收到 0x47B 才 true
+uint8[6] applied_level #verify=true 时为 0x47B 回读值, 否则为请求值
+string message

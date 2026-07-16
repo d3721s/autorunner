@@ -1,0 +1,15 @@
+# 末端直线运动 MOVE L (CAN 0x152/0x153/0x154 + 0x151 move_mode=0x02)
+# Goal
+Armpose target   #目标末端位姿 欧拉表示
+uint8 speed      #运动速度百分比1~100 (0 用驱动默认)
+---
+# Result
+bool success
+uint8 arm_status    #结束时机械臂状态 0x2A1 byte1 (0正常 2无解 3奇异点 4超限 7碰撞...)
+string message
+Armpose final_pose  #结束时末端位姿
+---
+# Feedback
+Armpose current_pose      #当前末端位姿
+float32[6] current_joint  #当前关节角 rad
+uint8 motion_status       #运动状态 0x2A1 byte4 (0到达 1未到达)
