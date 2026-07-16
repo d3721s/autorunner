@@ -8,11 +8,15 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(rclcpp_action REQUIRED)
 find_package(autorunner_ros_interfaces REQUIRED)
 find_package(ros2_socketcan REQUIRED)
 find_package(can_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(std_msgs REQUIRED)
+find_package(std_srvs REQUIRED)
+find_package(control_msgs REQUIRED)
+find_package(trajectory_msgs REQUIRED)
 
 # 协议层静态库：纯 C++，零 ROS 依赖，节点与 gtest 共用
 add_library(autorunner_protocol STATIC
@@ -29,16 +33,22 @@ target_compile_features(autorunner_protocol PUBLIC cxx_std_17)
 # 驱动节点
 add_executable(autorunner_driver_node
   src/driver_node.cpp
+  src/driver_node_services.cpp
+  src/driver_node_actions.cpp
   src/main.cpp
 )
 target_link_libraries(autorunner_driver_node autorunner_protocol)
 ament_target_dependencies(autorunner_driver_node
   rclcpp
+  rclcpp_action
   autorunner_ros_interfaces
   ros2_socketcan
   can_msgs
   sensor_msgs
   std_msgs
+  std_srvs
+  control_msgs
+  trajectory_msgs
 )
 
 install(TARGETS autorunner_driver_node

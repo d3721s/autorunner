@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cmath>
+#include <functional>
 #include <limits>
 
 #include "autorunner_driver/protocol/frame_ids.hpp"
@@ -34,6 +35,12 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
   const auto control_offset =
     static_cast<uint32_t>(declare_parameter<int>("control_id_offset", 0));
   init_retry_count_ = static_cast<int>(declare_parameter<int>("init_retry_count", 3));
+  response_timeout_ =
+    std::chrono::milliseconds(declare_parameter<int>("response_timeout_ms", 1000));
+  motion_timeout_ =
+    std::chrono::milliseconds(declare_parameter<int>("motion_timeout_ms", 30000));
+  min_move_time_ =
+    std::chrono::milliseconds(declare_parameter<int>("min_move_time_ms", 300));
 
   encoder_ = std::make_unique<proto::Encoder>(control_offset);
   decoder_ = std::make_unique<proto::Decoder>(feedback_offset);
@@ -50,15 +57,16 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
 
   // ---- 回调组 ----
   cmd_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  service_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  action_group_ = create_callback_group(rclcpp::CallbackGroupType::Reentrant);
   timer_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   rclcpp::SubscriptionOptions sub_opts;
   sub_opts.callback_group = cmd_group_;
 
   const auto reliable_qos = rclcpp::QoS(10);
   const auto sensor_qos = rclcpp::SensorDataQoS();
-  const auto latched_qos = rclcpp::QoS(1).transient_local();
 
-  // ---- 发布器 ----
+  // ---- 发布器 (周期反馈保持 topic) ----
   joint_states_pub_ =
     create_publisher<sensor_msgs::msg::JointState>("/joint_states", reliable_qos);
   arm_status_pub_ = create_publisher<msgs::Armstatus>("~/arm_status", reliable_qos);
@@ -72,64 +80,133 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
     create_publisher<msgs::Jointtemperature>("~/joint_temperature", reliable_qos);
   joint_error_code_pub_ =
     create_publisher<msgs::Jointerrorcode>("~/joint_error_code", reliable_qos);
-  joint_limit_pub_ = create_publisher<msgs::Jointlimit>("~/joint_limit", reliable_qos);
-  joint_max_acc_pub_ = create_publisher<msgs::Jointmaxacc>("~/joint_max_acc", reliable_qos);
-  collision_level_state_pub_ =
-    create_publisher<msgs::Collisionlevel>("~/collision_level_state", latched_qos);
-  end_velacc_state_pub_ = create_publisher<msgs::Endvelacc>("~/end_velacc_state", latched_qos);
-  set_response_pub_ = create_publisher<msgs::Setresponse>("~/set_response", reliable_qos);
-  movej_result_pub_ = create_publisher<std_msgs::msg::Bool>("~/movej_result", reliable_qos);
-  movep_result_pub_ = create_publisher<std_msgs::msg::Bool>("~/movep_result", reliable_qos);
-  movel_result_pub_ = create_publisher<std_msgs::msg::Bool>("~/movel_result", reliable_qos);
-  movec_result_pub_ = create_publisher<std_msgs::msg::Bool>("~/movec_result", reliable_qos);
-  enable_result_pub_ = create_publisher<std_msgs::msg::Bool>("~/enable_result", reliable_qos);
   if (publish_raw_frames_) {
     raw_rx_pub_ = create_publisher<can_msgs::msg::Frame>("~/raw_rx", sensor_qos);
   }
 
-  // ---- 订阅器 ----
-  movej_sub_ = create_subscription<msgs::Movej>(
-    "~/movej_cmd", reliable_qos,
-    std::bind(&DriverNode::movej_callback, this, std::placeholders::_1), sub_opts);
-  movep_sub_ = create_subscription<msgs::Movep>(
-    "~/movep_cmd", reliable_qos,
-    std::bind(&DriverNode::movep_callback, this, std::placeholders::_1), sub_opts);
-  movel_sub_ = create_subscription<msgs::Movep>(
-    "~/movel_cmd", reliable_qos,
-    std::bind(&DriverNode::movel_callback, this, std::placeholders::_1), sub_opts);
-  movec_sub_ = create_subscription<msgs::Movec>(
-    "~/movec_cmd", reliable_qos,
-    std::bind(&DriverNode::movec_callback, this, std::placeholders::_1), sub_opts);
+  // ---- 订阅器 (仅急停/MIT 保持 topic) ----
   stop_sub_ = create_subscription<msgs::Stop>(
     "~/stop_cmd", reliable_qos,
     std::bind(&DriverNode::stop_callback, this, std::placeholders::_1), sub_opts);
-  motion_ctrl_sub_ = create_subscription<msgs::Motionctrl>(
-    "~/motion_ctrl_cmd", reliable_qos,
-    std::bind(&DriverNode::motion_ctrl_callback, this, std::placeholders::_1), sub_opts);
-  mode_ctrl_sub_ = create_subscription<msgs::Modectrl>(
-    "~/mode_ctrl_cmd", reliable_qos,
-    std::bind(&DriverNode::mode_ctrl_callback, this, std::placeholders::_1), sub_opts);
-  enable_sub_ = create_subscription<msgs::Jointenable>(
-    "~/enable_cmd", reliable_qos,
-    std::bind(&DriverNode::enable_callback, this, std::placeholders::_1), sub_opts);
-  joint_config_sub_ = create_subscription<msgs::Jointconfig>(
-    "~/joint_config_cmd", reliable_qos,
-    std::bind(&DriverNode::joint_config_callback, this, std::placeholders::_1), sub_opts);
-  joint_limit_query_sub_ = create_subscription<msgs::Jointlimitquery>(
-    "~/joint_limit_query_cmd", reliable_qos,
-    std::bind(&DriverNode::joint_limit_query_callback, this, std::placeholders::_1), sub_opts);
-  joint_limit_set_sub_ = create_subscription<msgs::Jointlimitset>(
-    "~/joint_limit_set_cmd", reliable_qos,
-    std::bind(&DriverNode::joint_limit_set_callback, this, std::placeholders::_1), sub_opts);
-  collision_level_sub_ = create_subscription<msgs::Collisionlevel>(
-    "~/collision_level_cmd", reliable_qos,
-    std::bind(&DriverNode::collision_level_callback, this, std::placeholders::_1), sub_opts);
-  end_velacc_set_sub_ = create_subscription<msgs::Endvelacc>(
-    "~/end_velacc_set_cmd", reliable_qos,
-    std::bind(&DriverNode::end_velacc_set_callback, this, std::placeholders::_1), sub_opts);
   joint_mit_sub_ = create_subscription<msgs::Jointmit>(
     "~/joint_mit_cmd", reliable_qos,
     std::bind(&DriverNode::joint_mit_callback, this, std::placeholders::_1), sub_opts);
+
+  // ---- Service ----
+  const auto srv_grp = service_group_;
+  enable_joint_srv_ = create_service<srvs::EnableJoint>(
+    "~/enable_joint",
+    std::bind(
+      &DriverNode::enable_joint_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_joint_zero_srv_ = create_service<srvs::SetJointZero>(
+    "~/set_joint_zero",
+    std::bind(
+      &DriverNode::set_joint_zero_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  clear_joint_error_srv_ = create_service<srvs::ClearJointError>(
+    "~/clear_joint_error",
+    std::bind(
+      &DriverNode::clear_joint_error_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_joint_acc_srv_ = create_service<srvs::SetJointAcc>(
+    "~/set_joint_acc",
+    std::bind(
+      &DriverNode::set_joint_acc_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  query_joint_limit_srv_ = create_service<srvs::QueryJointLimit>(
+    "~/query_joint_limit",
+    std::bind(
+      &DriverNode::query_joint_limit_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  query_joint_max_acc_srv_ = create_service<srvs::QueryJointMaxAcc>(
+    "~/query_joint_max_acc",
+    std::bind(
+      &DriverNode::query_joint_max_acc_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  query_end_vel_acc_srv_ = create_service<srvs::QueryEndVelAcc>(
+    "~/query_end_vel_acc",
+    std::bind(
+      &DriverNode::query_end_vel_acc_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  query_collision_level_srv_ = create_service<srvs::QueryCollisionLevel>(
+    "~/query_collision_level",
+    std::bind(
+      &DriverNode::query_collision_level_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_joint_limit_srv_ = create_service<srvs::SetJointLimit>(
+    "~/set_joint_limit",
+    std::bind(
+      &DriverNode::set_joint_limit_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_end_vel_acc_srv_ = create_service<srvs::SetEndVelAcc>(
+    "~/set_end_vel_acc",
+    std::bind(
+      &DriverNode::set_end_vel_acc_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_collision_level_srv_ = create_service<srvs::SetCollisionLevel>(
+    "~/set_collision_level",
+    std::bind(
+      &DriverNode::set_collision_level_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  set_motion_ctrl_srv_ = create_service<srvs::SetMotionCtrl>(
+    "~/set_motion_ctrl",
+    std::bind(
+      &DriverNode::set_motion_ctrl_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+  emergency_stop_srv_ = create_service<std_srvs::srv::Trigger>(
+    "~/emergency_stop",
+    std::bind(
+      &DriverNode::emergency_stop_service, this,
+      std::placeholders::_1, std::placeholders::_2),
+    rmw_qos_profile_services_default, srv_grp);
+
+  // ---- Action ----
+  using namespace std::placeholders;
+  move_p_server_ = rclcpp_action::create_server<acts::MoveP>(
+    this, "~/move_p",
+    std::bind(&DriverNode::handle_goal<acts::MoveP>, this, _1, _2),
+    std::bind(&DriverNode::handle_cancel<acts::MoveP>, this, _1),
+    [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<acts::MoveP>> h) {
+      std::thread{std::bind(&DriverNode::execute_move_p, this, _1), h}.detach();
+    },
+    rcl_action_server_get_default_options(), action_group_);
+  move_l_server_ = rclcpp_action::create_server<acts::MoveL>(
+    this, "~/move_l",
+    std::bind(&DriverNode::handle_goal<acts::MoveL>, this, _1, _2),
+    std::bind(&DriverNode::handle_cancel<acts::MoveL>, this, _1),
+    [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<acts::MoveL>> h) {
+      std::thread{std::bind(&DriverNode::execute_move_l, this, _1), h}.detach();
+    },
+    rcl_action_server_get_default_options(), action_group_);
+  move_c_server_ = rclcpp_action::create_server<acts::MoveC>(
+    this, "~/move_c",
+    std::bind(&DriverNode::handle_goal<acts::MoveC>, this, _1, _2),
+    std::bind(&DriverNode::handle_cancel<acts::MoveC>, this, _1),
+    [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<acts::MoveC>> h) {
+      std::thread{std::bind(&DriverNode::execute_move_c, this, _1), h}.detach();
+    },
+    rcl_action_server_get_default_options(), action_group_);
+  move_joint_server_ = rclcpp_action::create_server<FollowJointTrajectory>(
+    this, "~/move_joint",
+    std::bind(&DriverNode::handle_goal<FollowJointTrajectory>, this, _1, _2),
+    std::bind(&DriverNode::handle_cancel<FollowJointTrajectory>, this, _1),
+    [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<FollowJointTrajectory>> h) {
+      std::thread{std::bind(&DriverNode::execute_move_joint, this, _1), h}.detach();
+    },
+    rcl_action_server_get_default_options(), action_group_);
 
   // ---- 定时器 ----
   high_speed_timer_ = create_wall_timer(
@@ -179,7 +256,6 @@ void DriverNode::receive_loop()
     } catch (const drivers::socketcan::SocketCanTimeout &) {
       // 超时用于响应退出标志, 正常情况
     } catch (const std::exception & e) {
-      // receive 超时抛 std::runtime_error, 其它异常也不应终止收帧线程
       const std::string what = e.what();
       if (what.find("timeout") == std::string::npos &&
         what.find("Timeout") == std::string::npos)
@@ -217,6 +293,12 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
     msg.joint_comm_err = fb.joint_comm_err;
     msg.joint_angle_limit_err = fb.joint_angle_limit_err;
     arm_status_pub_->publish(msg);
+    // 旁路: 更新 action 运动跟踪并唤醒 execute 线程
+    if (motion_active_.load()) {
+      motion_status_.store(fb.motion_status);
+      motion_arm_status_.store(fb.arm_status);
+      motion_cv_.notify_all();
+    }
     if (fb.arm_status != 0) {
       RCLCPP_WARN_THROTTLE(
         get_logger(), *get_clock(), 2000, "机械臂状态异常: %u", fb.arm_status);
@@ -240,6 +322,10 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
   } else if (std::holds_alternative<proto::JointAnglePart>(decoded)) {
     const auto & part = std::get<proto::JointAnglePart>(decoded);
     if (auto full = joint_angle_assembler_.feed(part.part, part.a, part.b)) {
+      {
+        std::lock_guard<std::mutex> lock(snapshot_mutex_);
+        last_joint_angle_ = *full;
+      }
       msgs::Jointangle msg;
       for (int i = 0; i < 6; ++i) {
         msg.joint[i] = static_cast<float>((*full)[i]);
@@ -255,39 +341,28 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
     low_snapshot_.update(std::get<proto::DriverLowSpeedFb>(decoded));
   } else if (std::holds_alternative<proto::JointLimitFb>(decoded)) {
     const auto & fb = std::get<proto::JointLimitFb>(decoded);
-    msgs::Jointlimit msg;
-    msg.joint_num = fb.joint_num;
-    msg.max_angle = static_cast<float>(fb.max_angle);
-    msg.min_angle = static_cast<float>(fb.min_angle);
-    msg.max_speed = static_cast<float>(fb.max_speed);
-    joint_limit_pub_->publish(msg);
+    if (fb.joint_num == expected_joint_num_limit_.load()) {
+      pending_jointlimit_.notify({fb.max_angle, fb.min_angle, fb.max_speed});
+    }
   } else if (std::holds_alternative<proto::JointMaxAccFb>(decoded)) {
     const auto & fb = std::get<proto::JointMaxAccFb>(decoded);
-    msgs::Jointmaxacc msg;
-    msg.joint_num = fb.joint_num;
-    msg.max_acc = static_cast<float>(fb.max_acc);
-    joint_max_acc_pub_->publish(msg);
+    if (fb.joint_num == expected_joint_num_acc_.load()) {
+      pending_jointacc_.notify({fb.max_acc});
+    }
   } else if (std::holds_alternative<proto::CollisionLevelFb>(decoded)) {
     const auto & fb = std::get<proto::CollisionLevelFb>(decoded);
-    msgs::Collisionlevel msg;
-    for (int i = 0; i < 6; ++i) {
-      msg.level[i] = fb.level[i];
-    }
-    collision_level_state_pub_->publish(msg);
+    pending_collision_.notify({fb.level});
   } else if (std::holds_alternative<proto::EndVelAccFb>(decoded)) {
     const auto & fb = std::get<proto::EndVelAccFb>(decoded);
-    msgs::Endvelacc msg;
-    msg.max_linear_vel = static_cast<float>(fb.max_linear_vel);
-    msg.max_angular_vel = static_cast<float>(fb.max_angular_vel);
-    msg.max_linear_acc = static_cast<float>(fb.max_linear_acc);
-    msg.max_angular_acc = static_cast<float>(fb.max_angular_acc);
-    end_velacc_state_pub_->publish(msg);
+    pending_endvelacc_.notify(
+      {fb.max_linear_vel, fb.max_angular_vel, fb.max_linear_acc, fb.max_angular_acc});
   } else if (std::holds_alternative<proto::SetResponseFb>(decoded)) {
     const auto & fb = std::get<proto::SetResponseFb>(decoded);
-    msgs::Setresponse msg;
-    msg.cmd_index = fb.cmd_index;
-    msg.zero_set_success = fb.zero_set_success;
-    set_response_pub_->publish(msg);
+    if (fb.cmd_index == 0x71) {
+      pending_enable_.notify({false});
+    } else if (fb.cmd_index == 0x75) {
+      pending_setjoint_.notify({fb.zero_set_success});
+    }
   }
 }
 
@@ -317,7 +392,6 @@ bool DriverNode::send_frames(const std::vector<proto::RawFrame> & frames)
 
 void DriverNode::initialize_arm()
 {
-  // 协议流程: 0x471 使能全部关节 -> 0x151 进入 CAN 控制模式
   proto::MotorEnableCmd enable_cmd;
   enable_cmd.joint_num = 7;
   enable_cmd.enable = true;
@@ -330,7 +404,8 @@ void DriverNode::initialize_arm()
     const bool sent = send_frame(encoder_->encode(enable_cmd)) &&
       send_frame(encoder_->encode(mode_cmd));
     if (sent) {
-      RCLCPP_INFO(get_logger(), "初始化序列已发送 (第 %d 次): 使能全部关节 + CAN 控制模式",
+      RCLCPP_INFO(
+        get_logger(), "初始化序列已发送 (第 %d 次): 使能全部关节 + CAN 控制模式",
         attempt);
       return;
     }
@@ -340,130 +415,7 @@ void DriverNode::initialize_arm()
   RCLCPP_ERROR(get_logger(), "初始化序列发送失败, 已达最大重试次数");
 }
 
-// ---------------- 命令回调 ----------------
-
-void DriverNode::movej_callback(const msgs::Movej::SharedPtr msg)
-{
-  proto::JointTargetCmd target;
-  for (int i = 0; i < 6; ++i) {
-    target.joint[i] = msg->joint[i];
-  }
-  proto::ModeCtrlCmd mode;
-  mode.ctrl_mode = 0x01;
-  mode.move_mode = 0x01;  // MOVE J
-  mode.speed = msg->speed > 0 ? msg->speed : default_speed_;
-  mode.install_pos = install_pos_;
-
-  const auto frames = encoder_->encode(target);
-  bool ok = send_frames({frames.begin(), frames.end()});
-  ok = send_frame(encoder_->encode(mode)) && ok;
-
-  std_msgs::msg::Bool result;
-  result.data = ok;
-  movej_result_pub_->publish(result);
-}
-
-void DriverNode::movep_callback(const msgs::Movep::SharedPtr msg)
-{
-  proto::PoseTargetCmd target;
-  target.x = msg->pose.x;
-  target.y = msg->pose.y;
-  target.z = msg->pose.z;
-  target.rx = msg->pose.rx;
-  target.ry = msg->pose.ry;
-  target.rz = msg->pose.rz;
-  proto::ModeCtrlCmd mode;
-  mode.ctrl_mode = 0x01;
-  mode.move_mode = 0x00;  // MOVE P
-  mode.speed = msg->speed > 0 ? msg->speed : default_speed_;
-  mode.install_pos = install_pos_;
-
-  const auto frames = encoder_->encode(target);
-  bool ok = send_frames({frames.begin(), frames.end()});
-  ok = send_frame(encoder_->encode(mode)) && ok;
-
-  std_msgs::msg::Bool result;
-  result.data = ok;
-  movep_result_pub_->publish(result);
-}
-
-void DriverNode::movel_callback(const msgs::Movep::SharedPtr msg)
-{
-  proto::PoseTargetCmd target;
-  target.x = msg->pose.x;
-  target.y = msg->pose.y;
-  target.z = msg->pose.z;
-  target.rx = msg->pose.rx;
-  target.ry = msg->pose.ry;
-  target.rz = msg->pose.rz;
-  proto::ModeCtrlCmd mode;
-  mode.ctrl_mode = 0x01;
-  mode.move_mode = 0x02;  // MOVE L
-  mode.speed = msg->speed > 0 ? msg->speed : default_speed_;
-  mode.install_pos = install_pos_;
-
-  const auto frames = encoder_->encode(target);
-  bool ok = send_frames({frames.begin(), frames.end()});
-  ok = send_frame(encoder_->encode(mode)) && ok;
-
-  std_msgs::msg::Bool result;
-  result.data = ok;
-  movel_result_pub_->publish(result);
-}
-
-void DriverNode::movec_callback(const msgs::Movec::SharedPtr msg)
-{
-  // 圆弧: 起点(当前位姿)/中点/终点依次发送位姿目标 + 0x158 标记
-  auto send_point = [this](const proto::PoseTargetCmd & pose, uint8_t index) {
-      const auto frames = encoder_->encode(pose);
-      bool ok = send_frames({frames.begin(), frames.end()});
-      proto::ArcPointCmd arc;
-      arc.point_index = index;
-      return send_frame(encoder_->encode(arc)) && ok;
-    };
-
-  // 起点: 使用最近一次末端位姿反馈 (0x2A2~4 组装缓存)
-  proto::PoseTargetCmd start;
-  {
-    std::lock_guard<std::mutex> lock(snapshot_mutex_);
-    start.x = last_end_pose_[0];
-    start.y = last_end_pose_[1];
-    start.z = last_end_pose_[2];
-    start.rx = last_end_pose_[3];
-    start.ry = last_end_pose_[4];
-    start.rz = last_end_pose_[5];
-  }
-  bool ok = send_point(start, 0x01);
-
-  proto::PoseTargetCmd mid;
-  mid.x = msg->pose_mid.x;
-  mid.y = msg->pose_mid.y;
-  mid.z = msg->pose_mid.z;
-  mid.rx = msg->pose_mid.rx;
-  mid.ry = msg->pose_mid.ry;
-  mid.rz = msg->pose_mid.rz;
-  ok = send_point(mid, 0x02) && ok;
-
-  proto::PoseTargetCmd end;
-  end.x = msg->pose_end.x;
-  end.y = msg->pose_end.y;
-  end.z = msg->pose_end.z;
-  end.rx = msg->pose_end.rx;
-  end.ry = msg->pose_end.ry;
-  end.rz = msg->pose_end.rz;
-  ok = send_point(end, 0x03) && ok;
-
-  proto::ModeCtrlCmd mode;
-  mode.ctrl_mode = 0x01;
-  mode.move_mode = 0x03;  // MOVE C
-  mode.speed = msg->speed > 0 ? msg->speed : default_speed_;
-  mode.install_pos = install_pos_;
-  ok = send_frame(encoder_->encode(mode)) && ok;
-
-  std_msgs::msg::Bool result;
-  result.data = ok;
-  movec_result_pub_->publish(result);
-}
+// ---------------- Topic 回调 (急停/MIT) ----------------
 
 void DriverNode::stop_callback(const msgs::Stop::SharedPtr msg)
 {
@@ -475,83 +427,6 @@ void DriverNode::stop_callback(const msgs::Stop::SharedPtr msg)
   } else {
     RCLCPP_INFO(get_logger(), "已发送急停恢复 (需重新使能电机后方可运动)");
   }
-}
-
-void DriverNode::motion_ctrl_callback(const msgs::Motionctrl::SharedPtr msg)
-{
-  proto::MotionCtrlCmd cmd;
-  cmd.trajectory_ctrl = msg->trajectory_ctrl;
-  cmd.drag_teach = msg->drag_teach;
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::mode_ctrl_callback(const msgs::Modectrl::SharedPtr msg)
-{
-  proto::ModeCtrlCmd cmd;
-  cmd.ctrl_mode = msg->ctrl_mode;
-  cmd.move_mode = msg->move_mode;
-  cmd.speed = msg->speed;
-  cmd.mit_mode = msg->mit_mode;
-  cmd.install_pos = msg->install_pos;
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::enable_callback(const msgs::Jointenable::SharedPtr msg)
-{
-  proto::MotorEnableCmd cmd;
-  cmd.joint_num = msg->joint_num;
-  cmd.enable = msg->enable;
-  const bool ok = send_frame(encoder_->encode(cmd));
-  std_msgs::msg::Bool result;
-  result.data = ok;
-  enable_result_pub_->publish(result);
-}
-
-void DriverNode::joint_config_callback(const msgs::Jointconfig::SharedPtr msg)
-{
-  proto::JointConfigCmd cmd;
-  cmd.joint_num = msg->joint_num;
-  cmd.set_zero = msg->set_zero;
-  cmd.clear_err = msg->clear_err;
-  cmd.max_acc = msg->max_acc;
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::joint_limit_query_callback(const msgs::Jointlimitquery::SharedPtr msg)
-{
-  proto::JointLimitQueryCmd cmd;
-  cmd.joint_num = msg->joint_num;
-  cmd.query_type = msg->query_type;
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::joint_limit_set_callback(const msgs::Jointlimitset::SharedPtr msg)
-{
-  proto::JointLimitSetCmd cmd;
-  cmd.joint_num = msg->joint_num;
-  cmd.max_angle = msg->max_angle;
-  cmd.min_angle = msg->min_angle;
-  cmd.max_speed = msg->max_speed;
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::collision_level_callback(const msgs::Collisionlevel::SharedPtr msg)
-{
-  proto::CollisionLevelSetCmd cmd;
-  for (int i = 0; i < 6; ++i) {
-    cmd.level[i] = msg->level[i];
-  }
-  send_frame(encoder_->encode(cmd));
-}
-
-void DriverNode::end_velacc_set_callback(const msgs::Endvelacc::SharedPtr msg)
-{
-  proto::EndVelAccSetCmd cmd;
-  cmd.max_linear_vel = msg->max_linear_vel;
-  cmd.max_angular_vel = msg->max_angular_vel;
-  cmd.max_linear_acc = msg->max_linear_acc;
-  cmd.max_angular_acc = msg->max_angular_acc;
-  send_frame(encoder_->encode(cmd));
 }
 
 void DriverNode::joint_mit_callback(const msgs::Jointmit::SharedPtr msg)

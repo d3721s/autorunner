@@ -11,3 +11,6 @@ autorunner_driver:
     feedback_id_offset: 0          # 反馈指令 ID 偏移 0x00/0x10/0x20 (见协议 0x470)
     control_id_offset: 0           # 控制指令 ID 偏移 0x00/0x10/0x20
     init_retry_count: 3            # 初始化序列最大重试次数
+    response_timeout_ms: 1000      # service 等待 CAN 应答帧 (0x476/0x473/0x478...) 超时
+    motion_timeout_ms: 30000       # action 单次运动最大等待时间
+    min_move_time_ms: 300          # action 起步观察窗口, 防止上次到达残留导致秒完成误判
