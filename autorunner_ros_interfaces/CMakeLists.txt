@@ -8,8 +8,10 @@ endif()
 # find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rosidl_default_generators REQUIRED)
+find_package(action_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
+  # ---- 周期反馈/直发消息 (topic) ----
   "msg/Armpose.msg"
   "msg/Armstatus.msg"
   "msg/Jointangle.msg"
@@ -35,6 +37,24 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/Collisionlevel.msg"
   "msg/Endvelacc.msg"
   "msg/Jointmit.msg"
+  # ---- 请求-响应 service ----
+  "srv/EnableJoint.srv"
+  "srv/SetJointZero.srv"
+  "srv/ClearJointError.srv"
+  "srv/SetJointAcc.srv"
+  "srv/QueryJointLimit.srv"
+  "srv/QueryJointMaxAcc.srv"
+  "srv/QueryEndVelAcc.srv"
+  "srv/QueryCollisionLevel.srv"
+  "srv/SetJointLimit.srv"
+  "srv/SetEndVelAcc.srv"
+  "srv/SetCollisionLevel.srv"
+  "srv/SetMotionCtrl.srv"
+  # ---- 运动 action ----
+  "action/MoveP.action"
+  "action/MoveL.action"
+  "action/MoveC.action"
+  DEPENDENCIES action_msgs
 )
 
 ament_export_dependencies(rosidl_default_runtime)

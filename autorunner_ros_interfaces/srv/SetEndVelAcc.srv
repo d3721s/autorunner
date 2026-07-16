@@ -1,0 +1,8 @@
+# 设置末端速度/加速度参数 (CAN 0x479 下发即返回, 协议无应答)
+float32 max_linear_vel    #末端最大线速度 m/s NaN不修改(填0x7FFF无效值)
+float32 max_angular_vel   #末端最大角速度 rad/s NaN不修改
+float32 max_linear_acc    #末端最大线加速度 m/s^2 NaN不修改
+float32 max_angular_acc   #末端最大角加速度 rad/s^2 NaN不修改
+---
+bool success              #CAN 帧下发成功为 true
+string message

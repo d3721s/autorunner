@@ -1,0 +1,8 @@
+# 查询关节角度/速度限制 (CAN 0x472 byte1=0x01 -> 应答 0x473, joint_num 匹配)
+uint8 joint_num    #关节序号1~6
+---
+bool success       #收到 0x473 应答为 true, 超时为 false
+float32 max_angle  #最大角度限制 rad
+float32 min_angle  #最小角度限制 rad
+float32 max_speed  #最大关节速度 rad/s
+string message

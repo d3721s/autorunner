@@ -1,0 +1,6 @@
+# 电机使能/失能 (CAN 0x471 -> 应答 0x476 byte0==0x71)
+uint8 joint_num   #关节序号1~6 7=全部关节电机
+bool enable       #true使能 false失能
+---
+bool success      #收到 0x476 应答为 true, 超时为 false
+string message

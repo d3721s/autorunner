@@ -1,0 +1,6 @@
+# 轨迹与拖动示教控制 (CAN 0x150 byte1/byte2 下发即返回)
+uint8 trajectory_ctrl  #轨迹指令 0关闭 1暂停 2开始/继续 3清除当前 4清除所有 6终止
+uint8 drag_teach       #拖动示教 0关闭 1开始记录 2结束记录 3执行 4暂停 5继续 6终止 7运动到起点
+---
+bool success           #CAN 帧下发成功为 true
+string message

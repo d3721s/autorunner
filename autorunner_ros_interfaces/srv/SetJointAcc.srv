@@ -1,0 +1,6 @@
+# 设置关节最大加速度 (CAN 0x475 byte2=0xAE + byte3~4 -> 应答 0x476 byte0==0x75)
+uint8 joint_num   #关节序号1~6 7=全部关节电机
+float32 max_acc   #最大关节加速度 rad/s^2
+---
+bool success      #收到 0x476 应答为 true, 超时为 false
+string message

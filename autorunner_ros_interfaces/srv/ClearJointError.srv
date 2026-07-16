@@ -1,0 +1,5 @@
+# 清除关节错误代码 (CAN 0x475 byte5=0xAE -> 应答 0x476 byte0==0x75)
+uint8 joint_num   #关节序号1~6 7=全部关节电机
+---
+bool success      #收到 0x476 应答为 true, 超时为 false
+string message
