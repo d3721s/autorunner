@@ -60,7 +60,8 @@ TEST(EndianTest, NanToInvalidSentinel)
 {
   const double nan = std::numeric_limits<double>::quiet_NaN();
   EXPECT_EQ(proto::to_fixed_i16_or_invalid(nan, proto::kDeciDeg), proto::kInvalid16);
-  EXPECT_EQ(proto::to_fixed_u16_or_invalid(nan, proto::kCentiRad),
+  EXPECT_EQ(
+    proto::to_fixed_u16_or_invalid(nan, proto::kCentiRad),
     static_cast<uint16_t>(proto::kInvalid16));
   // 非 NaN 正常缩放
   EXPECT_EQ(proto::to_fixed_u16_or_invalid(1.0, proto::kCentiRad), 100);

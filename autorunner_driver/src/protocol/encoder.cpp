@@ -104,9 +104,10 @@ RawFrame Encoder::encode(const JointConfigCmd & cmd) const
   f.data[1] = cmd.set_zero ? 0xAE : 0x00;
   const bool acc_valid = !std::isnan(cmd.max_acc);
   f.data[2] = acc_valid ? 0xAE : 0x00;
-  put_u16_be(f.data.data() + 3,
-    acc_valid ? to_fixed_u16_or_invalid(cmd.max_acc, kCentiRad)
-              : static_cast<uint16_t>(kInvalid16));
+  put_u16_be(
+    f.data.data() + 3,
+    acc_valid ? to_fixed_u16_or_invalid(cmd.max_acc, kCentiRad) :
+    static_cast<uint16_t>(kInvalid16));
   f.data[5] = cmd.clear_err ? 0xAE : 0x00;
   return f;
 }

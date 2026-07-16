@@ -23,7 +23,8 @@ public:
   : timeout_(timeout) {}
 
   // 输入一帧 (part 0~2, 每帧携带两个 double), 收齐返回 6 个值 [a0,b0,a1,b1,a2,b2]
-  std::optional<std::array<double, 6>> feed(uint8_t part, double a, double b,
+  std::optional<std::array<double, 6>> feed(
+    uint8_t part, double a, double b,
     Clock::time_point now = Clock::now());
 
 private:
