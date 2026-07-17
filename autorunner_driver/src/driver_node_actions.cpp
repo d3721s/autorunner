@@ -332,7 +332,7 @@ void DriverNode::execute_move_c(
   }
 }
 
-// ---- MoveJ: 标准 FollowJointTrajectory (move_mode=0x01) ----
+// ---- MoveJ: 标准 FollowJointTrajectory (move_mode=0x04 MOVE M, 逐点流式跟随) ----
 // 流式逐点下发: 按每点 time_from_start 定时发目标角, 让机械臂沿 MoveIt 规划路径跟随;
 // 相邻点最小间隔 traj_min_interval_ 降采样防止 CAN 过载; 末点必发以保证精确到达。
 void DriverNode::execute_move_joint(
@@ -380,10 +380,11 @@ void DriverNode::execute_move_joint(
       return true;
     };
 
-  // 进入 CAN + MOVE J 模式 (仅一次)
+  // 进入 CAN + MOVE M 模式 (仅一次)
+  // 流式逐点跟随用 MOVE M (0x04, 多点/连续轨迹), 而非 MOVE J (单目标点内部插值)
   proto::ModeCtrlCmd mode;
   mode.ctrl_mode = 0x01;
-  mode.move_mode = 0x01;
+  mode.move_mode = 0x04;
   mode.speed = default_speed_;
   mode.install_pos = install_pos_;
   if (!send_frame(encoder_->encode(mode))) {
@@ -469,7 +470,7 @@ void DriverNode::execute_move_joint(
       handle->abort(result);
       return;
     }
-    // MOVE J 模式帧在流式过程中周期性补发, 确保机械臂处于运动模式
+    // MOVE M 模式帧在流式过程中周期性补发, 确保机械臂处于运动模式
     send_frame(encoder_->encode(mode));
     last_scheduled_ns = sched_ns;
     publish_fb();
