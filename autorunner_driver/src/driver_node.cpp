@@ -41,7 +41,8 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
     std::chrono::milliseconds(declare_parameter<int>("motion_timeout_ms", 30000));
   min_move_time_ =
     std::chrono::milliseconds(declare_parameter<int>("min_move_time_ms", 300));
-
+  const auto move_joint_action_name = declare_parameter<std::string>(
+    "move_joint_action_name", "/autorunnerbase_controller/follow_joint_trajectory");
   encoder_ = std::make_unique<proto::Encoder>(control_offset);
   decoder_ = std::make_unique<proto::Decoder>(feedback_offset);
 
@@ -200,7 +201,7 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
     },
     rcl_action_server_get_default_options(), action_group_);
   move_joint_server_ = rclcpp_action::create_server<FollowJointTrajectory>(
-    this, "~/move_joint",
+    this, move_joint_action_name,
     std::bind(&DriverNode::handle_goal<FollowJointTrajectory>, this, _1, _2),
     std::bind(&DriverNode::handle_cancel<FollowJointTrajectory>, this, _1),
     [this](const std::shared_ptr<rclcpp_action::ServerGoalHandle<FollowJointTrajectory>> h) {
