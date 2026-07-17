@@ -1,26 +1,24 @@
-# 真机 launch: MoveIt 通过 autorunner_driver 走 CAN 控制真实机械臂。
+# 真机 launch: 只启动 MoveIt 规划/显示部分 (move_group + rsp + 静态TF + RViz)。
+# 机械臂驱动 autorunner_driver 始终单独启动, 由它提供 /joint_states 和
+# follow_joint_trajectory action; 本 launch 不启动驱动、也不启动任何 ros2_control 控制器。
 #
-# 与 demo.launch.py 的区别:
-#   demo 会启动 ros2_control_node + mock 硬件 + autorunnerbase_controller (仿真占位),
-#   那个占位控制器和本驱动争抢同一个 follow_joint_trajectory action 名, 会打架。
-#   真机 launch 只启动 MoveIt 规划/显示部分, 由 autorunner_driver 提供该 action 和
-#   /joint_states, 不启动任何 ros2_control 控制器。
-#
-# 前置: 先(或由本 launch)启动 autorunner_driver, 其 move_joint action 名默认已对齐
-#   /autorunnerbase_controller/follow_joint_trajectory (见驱动参数 move_joint_action_name)。
+# 分离启动流程:
+#   终端1:  ros2 launch autorunner_driver autorunner_driver.launch.py can_interface:=can1
+#   终端2:  确认 /joint_states 有真实关节角:  ros2 topic echo /joint_states
+#   终端3:  ros2 launch autorunner_moveit_config real_robot.launch.py
+# 必须先确认驱动的 /joint_states 出真实关节角再启动 MoveIt, 否则 MoveIt 用默认全零位,
+# 会在虚构姿态上误判碰撞, 导致规划失败。
 
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
-from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
 
 from moveit_configs_utils import MoveItConfigsBuilder
 from moveit_configs_utils.launches import (
     generate_move_group_launch,
-    generate_moveit_rviz_launch,
     generate_rsp_launch,
     generate_static_virtual_joint_tfs_launch,
 )
@@ -32,35 +30,12 @@ def generate_launch_description():
         .to_moveit_configs()
     )
 
-    can_interface_arg = DeclareLaunchArgument(
-        "can_interface", default_value="can1",
-        description="SocketCAN 接口名 (真机默认 can1, 仿真调试可用 vcan0)")
-    launch_driver_arg = DeclareLaunchArgument(
-        "launch_driver", default_value="true",
-        description="是否由本 launch 一并启动 autorunner_driver (false 则需另行启动)")
     launch_rviz_arg = DeclareLaunchArgument(
         "launch_rviz", default_value="true",
         description="是否启动 RViz")
 
     ld = LaunchDescription()
-    ld.add_action(can_interface_arg)
-    ld.add_action(launch_driver_arg)
     ld.add_action(launch_rviz_arg)
-
-    # ---- CAN 驱动: 提供 follow_joint_trajectory action + /joint_states ----
-    driver_launch = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution([
-                FindPackageShare("autorunner_driver"),
-                "launch", "autorunner_driver.launch.py",
-            ])
-        ),
-        launch_arguments={
-            "can_interface": LaunchConfiguration("can_interface"),
-        }.items(),
-        condition=IfCondition(LaunchConfiguration("launch_driver")),
-    )
-    ld.add_action(driver_launch)
 
     # ---- robot_state_publisher (URDF -> TF) ----
     for entity in generate_rsp_launch(moveit_config).entities:
