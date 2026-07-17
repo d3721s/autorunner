@@ -14,3 +14,6 @@ autorunner_driver:
     response_timeout_ms: 1000      # service 等待 CAN 应答帧 (0x476/0x473/0x478...) 超时
     motion_timeout_ms: 30000       # action 单次运动最大等待时间
     min_move_time_ms: 300          # action 起步观察窗口, 防止上次到达残留导致秒完成误判
+    traj_min_interval_ms: 20       # MoveJ 流式逐点下发相邻点最小间隔 (降采样限流, 20ms≈50Hz)
+    # MoveJ action 名默认对齐 MoveIt 控制器; 如需改用 ros2_control 仿真可在此覆盖
+    move_joint_action_name: "/autorunnerbase_controller/follow_joint_trajectory"

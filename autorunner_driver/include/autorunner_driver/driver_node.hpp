@@ -223,6 +223,7 @@ private:
   std::chrono::milliseconds response_timeout_{1000};
   std::chrono::milliseconds motion_timeout_{30000};
   std::chrono::milliseconds min_move_time_{300};
+  std::chrono::milliseconds traj_min_interval_{20};  // 流式下发相邻点最小间隔 (降采样限流)
 
   // ---- 看门狗 ----
   std::atomic<int64_t> last_status_time_ns_{0};
