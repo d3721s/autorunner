@@ -43,6 +43,8 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
     std::chrono::milliseconds(declare_parameter<int>("min_move_time_ms", 300));
   const auto move_joint_action_name = declare_parameter<std::string>(
     "move_joint_action_name", "/autorunnerbase_controller/follow_joint_trajectory");
+  traj_min_interval_ =
+    std::chrono::milliseconds(declare_parameter<int>("traj_min_interval_ms", 20));
   encoder_ = std::make_unique<proto::Encoder>(control_offset);
   decoder_ = std::make_unique<proto::Decoder>(feedback_offset);
 

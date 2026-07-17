@@ -332,52 +332,71 @@ void DriverNode::execute_move_c(
   }
 }
 
-// ---- MoveJ: 标准 FollowJointTrajectory (move_mode=0x01), 本驱动不插值, 取末点 ----
+// ---- MoveJ: 标准 FollowJointTrajectory (move_mode=0x01) ----
+// 流式逐点下发: 按每点 time_from_start 定时发目标角, 让机械臂沿 MoveIt 规划路径跟随;
+// 相邻点最小间隔 traj_min_interval_ 降采样防止 CAN 过载; 末点必发以保证精确到达。
 void DriverNode::execute_move_joint(
   const std::shared_ptr<rclcpp_action::ServerGoalHandle<FollowJointTrajectory>> handle)
 {
   const auto goal = handle->get_goal();
   auto result = std::make_shared<FollowJointTrajectory::Result>();
 
-  if (goal->trajectory.points.empty()) {
+  const auto & traj = goal->trajectory;
+  if (traj.points.empty()) {
     result->error_code = FollowJointTrajectory::Result::INVALID_GOAL;
     result->error_string = "轨迹为空";
     handle->abort(result);
     return;
   }
-  const auto & last_point = goal->trajectory.points.back();
-  if (last_point.positions.size() < 6) {
-    result->error_code = FollowJointTrajectory::Result::INVALID_JOINTS;
-    result->error_string = "末点关节数不足 6";
-    handle->abort(result);
-    return;
+
+  // 关节名映射: MoveIt 的 joint_names 顺序未必是 joint1~6, 按名字映射到本驱动关节序
+  // idx_map[k] = 轨迹里 joint_names_[k] 对应的下标; -1 表示缺失
+  std::array<int, 6> idx_map;
+  idx_map.fill(-1);
+  for (size_t k = 0; k < joint_names_.size() && k < 6; ++k) {
+    for (size_t j = 0; j < traj.joint_names.size(); ++j) {
+      if (traj.joint_names[j] == joint_names_[k]) {
+        idx_map[k] = static_cast<int>(j);
+        break;
+      }
+    }
+  }
+  for (int k = 0; k < 6; ++k) {
+    if (idx_map[k] < 0) {
+      result->error_code = FollowJointTrajectory::Result::INVALID_JOINTS;
+      result->error_string = "轨迹缺少关节: " + joint_names_[k];
+      handle->abort(result);
+      return;
+    }
   }
 
-  proto::JointTargetCmd target;
-  for (int i = 0; i < 6; ++i) {
-    target.joint[i] = last_point.positions[i];
-  }
-  const auto frames = encoder_->encode(target);
-  bool ok = send_frames({frames.begin(), frames.end()});
+  // 从轨迹点取 6 关节目标 (按 idx_map 重排)
+  auto point_to_target = [&idx_map](const trajectory_msgs::msg::JointTrajectoryPoint & p,
+      proto::JointTargetCmd & out) -> bool {
+      for (int k = 0; k < 6; ++k) {
+        if (static_cast<size_t>(idx_map[k]) >= p.positions.size()) {return false;}
+        out.joint[k] = p.positions[idx_map[k]];
+      }
+      return true;
+    };
 
+  // 进入 CAN + MOVE J 模式 (仅一次)
   proto::ModeCtrlCmd mode;
   mode.ctrl_mode = 0x01;
   mode.move_mode = 0x01;
   mode.speed = default_speed_;
   mode.install_pos = install_pos_;
-  ok = send_frame(encoder_->encode(mode)) && ok;
-
-  if (!ok) {
+  if (!send_frame(encoder_->encode(mode))) {
     result->error_code = FollowJointTrajectory::Result::GOAL_TOLERANCE_VIOLATED;
-    result->error_string = "CAN 帧下发失败";
+    result->error_string = "CAN 帧下发失败 (模式切换)";
     handle->abort(result);
     return;
   }
 
-  auto publish_fb = [this, handle, goal]() {
+  auto publish_fb = [this, handle, &traj]() {
       auto fb = std::make_shared<FollowJointTrajectory::Feedback>();
       fb->header.stamp = now();
-      fb->joint_names = goal->trajectory.joint_names;
+      fb->joint_names = traj.joint_names;
       trajectory_msgs::msg::JointTrajectoryPoint actual;
       {
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
@@ -387,6 +406,76 @@ void DriverNode::execute_move_joint(
       handle->publish_feedback(fb);
     };
 
+  // ---- 流式下发阶段 ----
+  // 置运动跟踪激活, 使 dispatch 在收到 0x2A1 时更新 motion_arm_status_, 供异常检查
+  motion_arm_status_.store(0);
+  motion_active_.store(true);
+  const auto traj_start = std::chrono::steady_clock::now();
+  const size_t n = traj.points.size();
+
+  // 每点相对起始的计划时刻 (ns)
+  auto point_time_ns = [](const trajectory_msgs::msg::JointTrajectoryPoint & p) -> int64_t {
+      return static_cast<int64_t>(p.time_from_start.sec) * 1000000000LL +
+             p.time_from_start.nanosec;
+    };
+  const int64_t min_interval_ns =
+    std::chrono::duration_cast<std::chrono::nanoseconds>(traj_min_interval_).count();
+
+  int64_t last_scheduled_ns = -min_interval_ns;  // 保证首点必发
+
+  for (size_t i = 0; i < n; ++i) {
+    const auto & pt = traj.points[i];
+    const bool is_last = (i + 1 == n);
+    const int64_t sched_ns = point_time_ns(pt);
+
+    // 降采样: 按计划时刻降采样, 距上次已下发点不足最小间隔则跳过 (但末点必发)
+    if (!is_last && (sched_ns - last_scheduled_ns) < min_interval_ns) {
+      continue;
+    }
+
+    // 取消检查
+    if (handle->is_canceling()) {
+      proto::MotionCtrlCmd stop;
+      stop.emergency_stop = 0x01;
+      send_frame(encoder_->encode(stop));
+      motion_active_.store(false);
+      result->error_code = FollowJointTrajectory::Result::SUCCESSFUL;
+      result->error_string = "已取消, 已下发急停";
+      handle->canceled(result);
+      return;
+    }
+    // 机械臂异常检查
+    const uint8_t arm_st = motion_arm_status_.load();
+    if (arm_st != 0) {
+      result->error_code = FollowJointTrajectory::Result::GOAL_TOLERANCE_VIOLATED;
+      result->error_string = "运动中机械臂异常 (状态: " + std::to_string(arm_st) + ")";
+      handle->abort(result);
+      motion_active_.store(false);
+      return;
+    }
+
+    // 按 time_from_start 节拍: 等到该点的计划时刻再下发
+    std::this_thread::sleep_until(traj_start + std::chrono::nanoseconds(sched_ns));
+
+    proto::JointTargetCmd target;
+    if (!point_to_target(pt, target)) {
+      continue;  // 该点关节数据不全, 跳过
+    }
+    const auto frames = encoder_->encode(target);
+    if (!send_frames({frames.begin(), frames.end()})) {
+      motion_active_.store(false);
+      result->error_code = FollowJointTrajectory::Result::GOAL_TOLERANCE_VIOLATED;
+      result->error_string = "CAN 帧下发失败 (轨迹点 " + std::to_string(i) + ")";
+      handle->abort(result);
+      return;
+    }
+    // MOVE J 模式帧在流式过程中周期性补发, 确保机械臂处于运动模式
+    send_frame(encoder_->encode(mode));
+    last_scheduled_ns = sched_ns;
+    publish_fb();
+  }
+
+  // ---- 末点已发, 等待到达终点 ----
   uint8_t arm_status = 0;
   bool canceled = false;
   const bool arrived = wait_motion_done(
@@ -398,7 +487,7 @@ void DriverNode::execute_move_joint(
     handle->canceled(result);
   } else if (arrived) {
     result->error_code = FollowJointTrajectory::Result::SUCCESSFUL;
-    result->error_string = "已到达目标关节角";
+    result->error_string = "已跟随轨迹到达终点";
     handle->succeed(result);
   } else {
     result->error_code = FollowJointTrajectory::Result::GOAL_TOLERANCE_VIOLATED;
