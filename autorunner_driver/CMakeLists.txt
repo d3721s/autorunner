@@ -20,9 +20,9 @@ find_package(trajectory_msgs REQUIRED)
 
 # 协议层静态库：纯 C++，零 ROS 依赖，节点与 gtest 共用
 add_library(autorunner_protocol STATIC
-  src/protocol/encoder.cpp
-  src/protocol/decoder.cpp
-  src/protocol/assembler.cpp
+  src/autorunner_driver/protocol/encoder.cpp
+  src/autorunner_driver/protocol/decoder.cpp
+  src/autorunner_driver/protocol/assembler.cpp
 )
 target_include_directories(autorunner_protocol PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -32,10 +32,10 @@ target_compile_features(autorunner_protocol PUBLIC cxx_std_17)
 
 # 驱动节点
 add_executable(autorunner_driver_node
-  src/driver_node.cpp
-  src/driver_node_services.cpp
-  src/driver_node_actions.cpp
-  src/main.cpp
+  src/autorunner_driver/driver_node.cpp
+  src/autorunner_driver/driver_node_services.cpp
+  src/autorunner_driver/driver_node_actions.cpp
+  src/autorunner_driver/main.cpp
 )
 target_link_libraries(autorunner_driver_node autorunner_protocol)
 ament_target_dependencies(autorunner_driver_node
@@ -66,10 +66,10 @@ if(BUILD_TESTING)
 
   find_package(ament_cmake_gtest REQUIRED)
   ament_add_gtest(test_protocol
-    test/test_endian.cpp
-    test/test_encoder.cpp
-    test/test_decoder.cpp
-    test/test_assembler.cpp
+    test/autorunner_driver/test_endian.cpp
+    test/autorunner_driver/test_encoder.cpp
+    test/autorunner_driver/test_decoder.cpp
+    test/autorunner_driver/test_assembler.cpp
   )
   target_link_libraries(test_protocol autorunner_protocol)
 endif()
