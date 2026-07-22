@@ -1,0 +1,37 @@
+u1_arm_driver:
+  ros__parameters:
+    arm_type: "U1_ARM"
+    arm_dof: 5
+    arm_joints: ["j1", "j2", "j3", "j4", "j5"]   # 与 URDF / joint_states 一致
+
+    can_interface: "can0"        # 达妙 USB2CAN -> SocketCAN 接口; 仿真调试用 vcan0
+    udp_cycle: 5                 # 状态发布/控制周期(ms), 5ms => 200Hz (沿用 rm 参数名)
+    auto_enable: true            # 启动即发送全部电机使能帧
+    estop_disable_motors: false  # 急停默认锁存位置保持(不失能), 防机械臂跌落
+
+    # 运动学链 (URDF 中的臂基座->末端 link)
+    urdf_path: ""                # 空则用包内 share/autorunner_driver/urdf/u1_arm.urdf
+    base_link: "l0"
+    tip_link: "l5"
+
+    # ---- 每关节电机参数 (下标与 arm_joints 对齐) ----
+    # 型号: j1=DM-J4310 j2=DM-J4340 j3=DM-J4310 j4=DM3507 j5=DM3507 (据 CSV, 现场核对)
+    motor_models: ["DM-J4310", "DM-J4340", "DM-J4310", "DM3507", "DM3507"]
+    motor_can_ids: [1, 2, 3, 4, 5]            # 电机内部 CAN ID (须<=15)
+    motor_master_ids: [17, 18, 19, 20, 21]    # 0x11..0x15, 电机反馈帧 ID
+    # 定点映射量程, 必须与电机内部设置(调试助手)一致, 否则位置/速度换算错误!
+    motor_p_max: [12.5, 12.5, 12.5, 12.5, 12.5]   # rad
+    motor_v_max: [30.0, 10.0, 30.0, 50.0, 50.0]   # rad/s
+    motor_t_max: [10.0, 28.0, 10.0, 5.0, 5.0]     # N·m
+    motor_direction: [1, 1, 1, 1, 1]              # 关节正向与电机正向关系 +1/-1
+    motor_zero_offset: [0.0, 0.0, 0.0, 0.0, 0.0]  # 电机侧零位偏移 rad
+
+    # ---- 关节软限位/规划限速 (据 CSV) ----
+    joint_lower: [-0.1745, -0.061087, -0.087266, -0.22689, -1.5708]
+    joint_upper: [1.7453, 1.6057, 3.1416, 3.8048, 1.5708]
+    joint_vmax: [2.0, 2.0, 2.0, 2.0, 2.0]     # rad/s
+    joint_amax: [5.0, 5.0, 5.0, 5.0, 5.0]     # rad/s^2
+
+    # ---- 状态上报(镜像 rm 参数名) ----
+    udp_force_coordinate: 0
+    udp_joint_speed_state: true

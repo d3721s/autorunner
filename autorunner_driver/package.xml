@@ -3,7 +3,7 @@
 <package format="3">
   <name>autorunner_driver</name>
   <version>0.0.0</version>
-  <description>CAN driver for the AgileX PiperX arm based on ros2_socketcan</description>
+  <description>CAN driver for the AgileX PiperX arm and the u1_arm 5-DOF Damiao-motor arm (rm_driver-mirrored interfaces), based on ros2_socketcan</description>
   <maintainer email="981889017@qq.com">runyu</maintainer>
   <license>TODO: License declaration</license>
 
@@ -19,6 +19,10 @@
   <depend>std_srvs</depend>
   <depend>control_msgs</depend>
   <depend>trajectory_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>kdl_parser</depend>
+  <depend>orocos_kdl</depend>
+  <depend>ament_index_cpp</depend>
 
   <test_depend>ament_lint_auto</test_depend>
   <test_depend>ament_lint_common</test_depend>
