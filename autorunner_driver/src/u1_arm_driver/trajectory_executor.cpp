@@ -11,6 +11,7 @@ TrajectoryExecutor::TrajectoryExecutor(std::shared_ptr<MotorManager> mgr, double
 {
   const size_t n = mgr_->size();
   hold_.assign(n, 0.0);
+  prev_hold_.assign(n, 0.0);
   vel_limit_.assign(n, 1.0);
 }
 
@@ -20,6 +21,7 @@ void TrajectoryExecutor::hold_from_feedback_locked()
   for (size_t i = 0; i < states.size(); ++i) {
     hold_[i] = states[i].joint_pos;
   }
+  prev_hold_ = hold_;   // 保持位不产生前馈速度
   hold_valid_ = true;
 }
 
@@ -249,15 +251,21 @@ void TrajectoryExecutor::tick()
     }
   }
 
-  // 下发: 使能电机发位置速度帧(附带引出反馈), 未使能电机发 0xCC 查询
+  // 计算下发速度: MIT 模式用位置差分作前馈; 位置速度模式(canfd)用 vel_limit_ 作速度上限
+  const bool mit = (mgr_->arm_mode() == protocol::CtrlMode::kMit);
   const auto targets = hold_;
-  const auto limits = vel_limit_;
+  std::vector<double> vels(hold_.size());
+  for (size_t i = 0; i < hold_.size(); ++i) {
+    vels[i] = mit ? (hold_[i] - prev_hold_[i]) / dt_ : vel_limit_[i];
+  }
+  prev_hold_ = hold_;
   lock.unlock();
 
+  // 下发: 使能电机按当前模式发控制帧(一发一收, 附带引出反馈), 未使能电机发 0xCC 查询
   const auto states = mgr_->snapshot();
   for (size_t i = 0; i < targets.size(); ++i) {
     if (states[i].enabled) {
-      mgr_->send_pos_vel(i, targets[i], limits[i]);
+      mgr_->drive(i, targets[i], vels[i]);
     } else {
       mgr_->refresh(i);
     }

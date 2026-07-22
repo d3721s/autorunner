@@ -24,7 +24,7 @@ u1_arm_driver_node (单进程, MultiThreadedExecutor 8线程)
 - 位置速度帧：`float32 位置(rad) + float32 速度(rad/s)`，小端
 - 反馈帧（ID=master_id）：`D0=ID|(ERR<<4)`，POS16/VEL12/T12 线性映射，D6/D7 温度
 - 寄存器：广播 `0x7FF`，`0x33`读 / `0x55`写 / `0xAA`存 / `0xCC`读反馈
-- 默认控制模式：**位置速度模式**（电机内部闭环，驱动侧免整定 Kp/Kd）；MIT 编码也已实现备用
+- 默认控制模式：**MIT 模式**（500Hz，`control_cycle_ms` 可配；每轴 `mit_kp`/`mit_kd` 需现场整定，Kd 必须 >0）；`*_canfd` 透传时运行时切到**位置速度模式**。详见 `doc.md`
 
 ## 2. 编译
 

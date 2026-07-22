@@ -30,6 +30,8 @@ struct MotorConfig
   double limit_upper{3.14};
   double vmax{2.0};               // 关节侧规划限速 rad/s
   double amax{5.0};               // 关节侧规划限加速度 rad/s^2
+  double mit_kp{30.0};            // MIT 模式位置刚度 Kp (0~500)
+  double mit_kd{1.5};             // MIT 模式速度阻尼 Kd (0~5)
 };
 
 struct MotorState
@@ -58,15 +60,29 @@ public:
   bool handle_frame(uint32_t id, const uint8_t * data, uint8_t dlc);
 
   // ---- 命令 (线程安全, 直接走 CanBus) ----
+  // 使能/失能/清错/查询均在"当前控制模式"(arm_mode())对应的偏移上收发。
   bool enable(size_t i);
   bool disable(size_t i);
   bool enable_all();
   bool disable_all();
   bool clear_error(size_t i);      // FB 清错帧
   bool save_zero(size_t i);        // FE 保存当前位置为零点
-  // 关节侧目标 -> 位置速度模式帧; 位置裁剪到软限位, vel_limit 取绝对值
-  bool send_pos_vel(size_t i, double joint_pos, double joint_vel_limit);
   bool refresh(size_t i);          // 0x7FF/0xCC 查询反馈(失能状态下用)
+
+  // ---- 控制模式 ----
+  // 当前整臂控制模式 (默认 MIT)。canfd 透传时切到位置速度模式。
+  protocol::CtrlMode arm_mode() const;
+  // 运行时切换整臂控制模式: 若与当前不同, 逐个电机 失能->写CTRL_MODE寄存器->
+  // 在新偏移重新使能, 并更新 arm_mode_。相同则空操作。线程安全, 内部有短暂 sleep。
+  void set_arm_mode(protocol::CtrlMode mode);
+  // 按当前 arm_mode_ 写第 i 个电机的 CTRL_MODE 寄存器 (启动/重连时确保电机模式正确)
+  bool write_ctrl_mode(size_t i);
+
+  // 按当前模式驱动第 i 个电机到 (关节位置, 关节速度前馈):
+  //  - MIT 模式: 发 MIT 帧 (P=目标, V=速度前馈, Kp/Kd 来自配置, T_ff=0)
+  //  - 位置速度模式: 发位置速度帧 (位置 + |速度| 作为速度上限)
+  // 位置裁剪到软限位; joint_vel 带符号(用于 MIT 前馈)。
+  bool drive(size_t i, double joint_pos, double joint_vel);
 
   // ---- 状态 ----
   MotorState state(size_t i) const;
@@ -92,6 +108,8 @@ private:
   std::shared_ptr<CanBus> bus_;
   mutable std::mutex state_mutex_;
   std::vector<MotorState> states_;
+  mutable std::mutex mode_mutex_;
+  protocol::CtrlMode arm_mode_{protocol::CtrlMode::kMit};
 };
 
 }  // namespace u1_arm
