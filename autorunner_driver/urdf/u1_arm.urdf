@@ -1,0 +1,605 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com)
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="u1_arm">
+  <link name="world" />
+  <joint name="world_to_base_link" type="fixed">
+    <parent link="world" />
+    <child link="base_link" />
+    <origin xyz="-0.3275 0.245 -0.519" rpy="0 0 0" />
+  </joint>
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.0242698272228022 -0.0030308024613212 0.0544267444673498" rpy="0 0 0" />
+      <mass value="10" />
+      <inertia ixx="0.1354" ixy="0.0" ixz="0.0" iyy="0.2417" iyz="0.0" izz="0.3085"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0.0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/ranger_base.dae" scale="1 1 1" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.1" rpy="0 0 0" />
+      <geometry>
+        <box size="0.5 0.35 0.2"/>
+      </geometry>
+    </collision>
+  </link>
+  <link name="fr_steering_wheel_link">
+    <inertial>
+      <origin xyz="1.8493E-05 1.2713E-06 0.043679" rpy="0 0 0" />
+      <mass value="1" />
+      <inertia ixx="0.0063625" ixy="-1.0581E-07" ixz="-4.0831E-07" iyy="0.006363" iyz="-3.4944E-08" izz="0.010465" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/steering_wheel.dae" scale="10 10 10"/>
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.001" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fr_steering_joint" type="revolute">
+    <origin xyz="0.25 -0.19 -0.1" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="fr_steering_wheel_link" />
+    <axis xyz="0 0 -1" />
+    <limit effort="5" velocity="6.28" lower="-2.1" upper="2.1" />
+  </joint>
+  <link name="fr_wheel_link">
+    <inertial>
+      <mass value="8" />
+      <origin xyz="0 0 0" />
+      <inertia ixx="0.02047" ixy="0.0" ixz="0.0" iyy="0.02047" iyz="0.0" izz="0.0324"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="3.14 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/wheel_v3.dae" scale="10 10 10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.005" rpy="1.57 0 0" />
+      <geometry>
+        <cylinder length="0.08" radius="0.09" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fr_wheel" type="continuous">
+    <origin xyz="0.0 0.0 -0.12" rpy="0 0 0" />
+    <parent link="fr_steering_wheel_link"/>
+    <child link="fr_wheel_link"/>
+    <axis xyz="0 1 0" rpy="0 0 0" />
+  </joint>
+  <link name="fl_steering_wheel_link">
+    <inertial>
+      <origin xyz="-0.0017956 -9.6304E-08 0.043642" rpy="0 0 0" />
+      <mass value="1" />
+      <inertia ixx="0.0063695" ixy="-2.1067E-08" ixz="-0.00016867" iyy="0.006363" iyz="-1.0301E-08" izz="0.010458" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/steering_wheel.dae" scale="10 10 10"/>
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.001" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fl_steering_joint" type="revolute">
+    <origin xyz="0.25 0.19 -0.1" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="fl_steering_wheel_link" />
+    <axis xyz="0 0 -1" />
+    <limit effort="5" velocity="6.28" lower="-2.1" upper="2.1" />
+  </joint>
+  <link name="fl_wheel_link">
+    <inertial>
+      <mass value="8" />
+      <origin xyz="0 0 0" />
+      <inertia ixx="0.02047" ixy="0.0" ixz="0.0" iyy="0.02047" iyz="0.0" izz="0.0324"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/wheel_v3.dae" scale="10 10 10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 -0.005" rpy="1.57 0 0" />
+      <geometry>
+        <cylinder length="0.08" radius="0.09" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="fl_wheel" type="continuous">
+    <origin xyz="0.0 0.0 -0.12" rpy="0 0 0" />
+    <parent link="fl_steering_wheel_link"/>
+    <child link="fl_wheel_link"/>
+    <axis xyz="0 1 0" rpy="0 0 0" />
+  </joint>
+  <link name="rl_steering_wheel_link">
+    <inertial>
+      <origin xyz="-0.00017093 6.1255E-08 0.043678" rpy="0 0 0" />
+      <mass value="1" />
+      <inertia ixx="0.0063627" ixy="-2.1069E-08" ixz="-1.587E-05" iyy="0.006363" iyz="9.3201E-09" izz="0.010465" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 3.14" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/steering_wheel.dae" scale="10 10 10"/>
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.001" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="rl_steering_joint" type="revolute">
+    <origin xyz="-0.25 0.19 -0.1" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="rl_steering_wheel_link" />
+    <axis xyz="0 0 -1" />
+    <limit effort="5" velocity="6.28" lower="-2.1" upper="2.1" />
+  </joint>
+  <link name="rl_wheel_link">
+    <inertial>
+      <mass value="8" />
+      <origin xyz="0 0 0" />
+      <inertia ixx="0.02047" ixy="0.0" ixz="0.0" iyy="0.02047" iyz="0.0" izz="0.0324"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/wheel_v3.dae" scale="10 10 10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.00 0.00 -0.005" rpy="1.57 0 0" />
+      <geometry>
+        <cylinder length="0.08" radius="0.09" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="rl_wheel" type="continuous">
+    <origin xyz="0.0 0.0 -0.12" rpy="0 0 0" />
+    <parent link="rl_steering_wheel_link"/>
+    <child link="rl_wheel_link"/>
+    <axis xyz="0 1 0" rpy="0 0 0" />
+  </joint>
+  <link name="rr_steering_wheel_link">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0"/>
+      <mass value="1"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/steering_wheel.dae" scale="10 10 10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <cylinder radius="0.001" length="0.001"/>
+      </geometry>
+    </collision>
+  </link>
+  <joint name="rr_steering_joint" type="revolute">
+    <origin xyz="-0.23 -0.206 -0.1" rpy="0 0 0" />
+    <parent link="base_link"/>
+    <child link="rr_steering_wheel_link"/>
+    <axis xyz="0 0 -1" rpy="0 0 0" />
+    <limit effort="5" velocity="6.28" lower="-2.1" upper="2.1" />
+  </joint>
+  <link name="rr_wheel_link">
+    <inertial>
+      <mass value="8" />
+      <origin xyz="0 0 0" />
+      <inertia ixx="0.02047" ixy="0.0" ixz="0.0" iyy="0.02047" iyz="0.0" izz="0.0324"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.0 0.0 0.0" rpy="3.14 0 0" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/dae/wheel_v3.dae" scale="10 10 10"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.0 0.0 -0.005" rpy="1.57 0 0" />
+      <geometry>
+        <cylinder length="0.08" radius="0.09" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="rr_wheel" type="continuous">
+    <origin xyz="0.0 0.0 -0.12" rpy="0 0 0" />
+    <parent link="rr_steering_wheel_link"/>
+    <child link="rr_wheel_link"/>
+    <axis xyz="0 1 0" rpy="0 0 0" />
+  </joint>
+  <link name="u1_frame">
+    <visual>
+      <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/u1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+      <material name="u1_frame_material">
+        <color rgba="0.45 0.48 0.52 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
+      <geometry>
+        <mesh filename="package://u1_arm_description/meshes/u1_arm/u1.stl" scale="0.001 0.001 0.001" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="base_link_to_u1_frame" type="fixed">
+    <parent link="base_link" />
+    <child link="u1_frame" />
+    <origin xyz="0.3275 -0.245 0.519" rpy="0 0 0" />
+  </joint>
+  <joint name="u1_frame_to_l0" type="fixed">
+    <parent link="u1_frame" />
+    <child link="l0" />
+    <origin xyz="0 0 0" rpy="0 0 0" />
+  </joint>
+  <link
+    name="l0">
+    <inertial>
+      <origin
+        xyz="1.1048E-05 2.819E-05 0.017652"
+        rpy="0 0 0" />
+      <mass
+        value="0.18582" />
+      <inertia
+        ixx="7.8802E-05"
+        ixy="-2.7139E-08"
+        ixz="6.2215E-09"
+        iyy="7.8857E-05"
+        iyz="-1.1929E-08"
+        izz="0.0001443" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l0.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.75294 0.75294 0.75294 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l0.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="l1">
+    <inertial>
+      <origin
+        xyz="-2.3989E-05 0.00072349 0.030262"
+        rpy="0 0 0" />
+      <mass
+        value="0.23473" />
+      <inertia
+        ixx="8.1407E-05"
+        ixy="-1.5383E-09"
+        ixz="-2.4428E-07"
+        iyy="0.0001113"
+        iyz="-1.6227E-08"
+        izz="7.4518E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.77647 0.75686 0.73725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j1"
+    type="revolute">
+    <origin
+      xyz="0 0 0.059"
+      rpy="0 0 0" />
+    <parent
+      link="l0" />
+    <child
+      link="l1" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.1745"
+      upper="1.7453"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="l2">
+    <inertial>
+      <origin
+        xyz="0.18363 0.00079011 -0.038337"
+        rpy="0 0 0" />
+      <mass
+        value="0.43737" />
+      <inertia
+        ixx="5.4405E-05"
+        ixy="2.9899E-09"
+        ixz="-2.3792E-08"
+        iyy="0.0035564"
+        iyz="-6.766E-09"
+        izz="0.0035629" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.77647 0.75686 0.73725 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j2"
+    type="revolute">
+    <origin
+      xyz="0 -0.038625 0.043"
+      rpy="1.5708 -1.5708 0" />
+    <parent
+      link="l1" />
+    <child
+      link="l2" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.061087"
+      upper="1.6057"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="l3">
+    <inertial>
+      <origin
+        xyz="0.15075 4.01E-06 -0.038068"
+        rpy="0 0 0" />
+      <mass
+        value="0.50886" />
+      <inertia
+        ixx="8.4845E-05"
+        ixy="-4.6137E-07"
+        ixz="2.6796E-08"
+        iyy="0.0018411"
+        iyz="-1.2049E-08"
+        izz="0.0018926" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.86667 0.9098 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j3"
+    type="revolute">
+    <origin
+      xyz="0.35 0 0"
+      rpy="0 0 3.1416" />
+    <parent
+      link="l2" />
+    <child
+      link="l3" />
+    <axis
+      xyz="0 0 1" />
+    <limit
+      lower="-0.087266"
+      upper="3.1416"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="l4">
+    <inertial>
+      <origin
+        xyz="0.064955 -0.044026 -0.024447"
+        rpy="0 0 0" />
+      <mass
+        value="0.22821" />
+      <inertia
+        ixx="6.995E-05"
+        ixy="2.8266E-05"
+        ixz="-5.5489E-07"
+        iyy="0.00010129"
+        iyz="8.8924E-07"
+        izz="0.00012107" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.86667 0.9098 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j4"
+    type="revolute">
+    <origin
+      xyz="0.28 0 -0.0045"
+      rpy="0 0 3.1416" />
+    <parent
+      link="l3" />
+    <child
+      link="l4" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-0.22689"
+      upper="3.8048"
+      effort="0"
+      velocity="0" />
+  </joint>
+  <link
+    name="l5">
+    <inertial>
+      <origin
+        xyz="0.029337 4.5147E-06 0.02637"
+        rpy="0 0 0" />
+      <mass
+        value="0.096737" />
+      <inertia
+        ixx="1.6629E-05"
+        ixy="2.6201E-08"
+        ixz="-1.4424E-07"
+        iyy="0.00012712"
+        iyz="3.7249E-09"
+        izz="0.00012739" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j5"
+    type="revolute">
+    <origin
+      xyz="0.08 -0.0261 -0.033"
+      rpy="-1.5708 0 0" />
+    <parent
+      link="l4" />
+    <child
+      link="l5" />
+    <axis
+      xyz="0 0 -1" />
+    <limit
+      lower="-1.5708"
+      upper="1.5708"
+      effort="0"
+      velocity="0" />
+  </joint>
+</robot>
