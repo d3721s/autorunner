@@ -5,7 +5,7 @@
     <visual>
       <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
       <geometry>
-        <mesh filename="package://autorunner_description/meshes/AutoRunner/u2.stl" scale="0.001 0.001 0.001" />
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/u1.stl" scale="0.001 0.001 0.001" />
       </geometry>
       <material name="u1_frame_material">
         <color rgba="0.45 0.48 0.52 1" />
@@ -14,7 +14,7 @@
     <collision>
       <origin xyz="-0.24 0.181 0.484" rpy="3.1416 0 1.5708" />
       <geometry>
-        <mesh filename="package://autorunner_description/meshes/AutoRunner/u2.stl" scale="0.001 0.001 0.001" />
+        <mesh filename="package://autorunner_description/meshes/AutoRunner/u1.stl" scale="0.001 0.001 0.001" />
       </geometry>
     </collision>
   </link>
