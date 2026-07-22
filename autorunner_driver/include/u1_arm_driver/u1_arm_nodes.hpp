@@ -147,6 +147,9 @@ private:
   std::vector<MotorConfig> motor_cfgs_;
   PublishConfig pub_cfg_;
   bool estop_disable_motors_{false};
+  bool auto_enable_{true};          // 是否自动使能并在看门狗中重试使能
+  bool set_mode_on_start_{true};    // 使能前先写 CTRL_MODE 寄存器(默认 MIT)
+  int watchdog_ticks_{0};           // 看门狗计数, 用于一次性启动诊断
   double tip_frame_registry_{0.0};  // 占位, 见下方软件坐标系
   std::string cur_work_frame_{"Base"};
   std::string cur_tool_frame_{"Arm_Tip"};

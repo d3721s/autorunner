@@ -43,6 +43,7 @@ Pose to_pose(const geometry_msgs::msg::Pose & p)
 bool U1ArmDriver::run_cartesian(std::vector<std::vector<double>> pts, bool block)
 {
   if (pts.empty()) {return false;}
+  motors_->set_arm_mode(protocol::CtrlMode::kMit);   // 笛卡尔运动底层走 MIT
   if (!exec_->start_sampled(std::move(pts))) {return false;}
   if (block) {
     return exec_->wait_motion_done(

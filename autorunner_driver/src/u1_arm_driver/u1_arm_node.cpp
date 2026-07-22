@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <thread>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
 
@@ -34,9 +35,12 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   declare_parameter<std::string>("arm_type", "U1_ARM");
   declare_parameter<int>("arm_dof", 5);
   const auto can_interface = declare_parameter<std::string>("can_interface", "can0");
-  const auto auto_enable = declare_parameter<bool>("auto_enable", true);
+  auto_enable_ = declare_parameter<bool>("auto_enable", true);
+  set_mode_on_start_ = declare_parameter<bool>("set_mode_on_start", true);
   estop_disable_motors_ = declare_parameter<bool>("estop_disable_motors", false);
   const int udp_cycle = declare_parameter<int>("udp_cycle", 5);
+  // 控制环频率独立于状态上报: 默认 2ms=500Hz (5 电机经典CAN 5000fps, 在预算内)
+  const int control_cycle = declare_parameter<int>("control_cycle_ms", 2);
   const auto urdf_path = declare_parameter<std::string>("urdf_path", "");
   const auto base_link = declare_parameter<std::string>("base_link", "l0");
   const auto tip_link = declare_parameter<std::string>("tip_link", "l5");
@@ -67,7 +71,7 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
     motor_cfgs_.size());
 
   motors_ = std::make_shared<MotorManager>(motor_cfgs_, bus_);
-  const double dt = std::max(1, udp_cycle) / 1000.0;
+  const double dt = std::max(1, control_cycle) / 1000.0;
   exec_ = std::make_shared<TrajectoryExecutor>(motors_, dt);
 
   // ---- 运动学 (可选) ----
@@ -108,16 +112,24 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   setup_stub_topics();
 
   // ---- 使能 ----
-  if (auto_enable) {
-    if (motors_->enable_all()) {
-      RCLCPP_INFO(get_logger(), "已发送全部电机使能帧");
-    } else {
-      RCLCPP_WARN(get_logger(), "部分电机使能帧发送失败");
+  // 底层默认 MIT 模式: 电机需处于 CTRL_MODE=MIT(1) 才响应 MIT 偏移(0x000)的使能帧。
+  // 故先逐个写 CTRL_MODE 寄存器(默认 MIT), 再在当前模式偏移使能。否则模式不符的
+  // 电机会静默忽略使能, 表现为"部分轴使能不了"。
+  if (auto_enable_) {
+    if (set_mode_on_start_) {
+      for (size_t i = 0; i < motors_->size(); ++i) {
+        motors_->write_ctrl_mode(i);
+        std::this_thread::sleep_for(2ms);   // 给电机处理寄存器写的时间
+      }
+      std::this_thread::sleep_for(10ms);
     }
+    motors_->enable_all();
+    RCLCPP_INFO(
+      get_logger(), "已发送全部电机 MIT 模式设置与使能帧 (控制环 %d ms)", control_cycle);
   }
 
   // ---- 定时器 ----
-  const auto period = std::chrono::milliseconds(std::max(1, udp_cycle));
+  const auto period = std::chrono::milliseconds(std::max(1, control_cycle));
   control_timer_ = create_wall_timer(
     period, std::bind(&U1ArmDriver::control_tick, this), timer_group_);
   watchdog_timer_ = create_wall_timer(
@@ -154,6 +166,8 @@ std::vector<MotorConfig> U1ArmDriver::load_motor_configs()
   const auto hi = dbl("joint_upper", {3.14});
   const auto vmax = dbl("joint_vmax", {2.0});
   const auto amax = dbl("joint_amax", {5.0});
+  const auto kp = dbl("mit_kp", {30.0});   // MIT 位置刚度 (0~500), 需现场整定
+  const auto kd = dbl("mit_kd", {1.5});    // MIT 速度阻尼 (0~5), 位置控制时必须 >0
 
   std::vector<MotorConfig> cfgs(n);
   for (size_t i = 0; i < n; ++i) {
@@ -170,6 +184,13 @@ std::vector<MotorConfig> U1ArmDriver::load_motor_configs()
     c.limit_upper = hi[i];
     c.vmax = vmax[i];
     c.amax = amax[i];
+    c.mit_kp = kp[i];
+    c.mit_kd = kd[i];
+    if (c.mit_kp > 1e-6 && c.mit_kd < 1e-6) {
+      RCLCPP_WARN(
+        get_logger(), "[%s] mit_kd=0 且 mit_kp>0 会导致 MIT 位置控制震荡, 请设 kd>0",
+        c.joint_name.c_str());
+    }
   }
   return cfgs;
 }
@@ -206,6 +227,44 @@ void U1ArmDriver::watchdog_tick()
       std::static_pointer_cast<rclcpp::Publisher<msgs::Rmerr>>(it->second)->publish(err);
     }
   }
+
+  const auto states = motors_->snapshot();
+  ++watchdog_ticks_;
+
+  // 启动诊断: 第 3 次看门狗(~1.5s)一次性打印各电机反馈/使能情况, 便于定位
+  // "部分轴使能不了"(常见: can_id/master_id/模式与 yaml 不符)。
+  if (watchdog_ticks_ == 3) {
+    for (size_t i = 0; i < states.size(); ++i) {
+      const auto & c = motor_cfgs_[i];
+      if (!states[i].online) {
+        RCLCPP_WARN(
+          get_logger(),
+          "[%s] 无反馈: 未收到 master_id=0x%02X 的帧 —— 检查该电机 CAN ID(0x%02X)/"
+          "Master ID/接线/波特率是否与 yaml 一致",
+          c.joint_name.c_str(), c.master_id, c.can_id);
+      } else if (!states[i].enabled) {
+        RCLCPP_WARN(
+          get_logger(),
+          "[%s] 有反馈但未使能(状态码=%d): 若为 0(失能), 多因电机不在位置速度模式;"
+          " 用 motor_setup.py write %d 0x0A 2 && save 后重试",
+          c.joint_name.c_str(), static_cast<int>(states[i].status), c.can_id);
+      } else {
+        RCLCPP_INFO(get_logger(), "[%s] 已使能 ✓", c.joint_name.c_str());
+      }
+    }
+  }
+
+  // 使能重试: 对在线但未使能(且非故障)的电机周期性重发使能, 兼容上电时序/丢帧。
+  // 完全无反馈的电机不重试(重试也无意义, 且避免刷屏), 由上面的诊断提示排查。
+  if (auto_enable_ && !exec_->estopped()) {
+    for (size_t i = 0; i < states.size(); ++i) {
+      const auto & s = states[i];
+      if (s.online && !s.enabled && !protocol::status_is_fault(s.status)) {
+        if (set_mode_on_start_) {motors_->write_ctrl_mode(i);}
+        motors_->enable(i);
+      }
+    }
+  }
 }
 
 // ======================= 运动回调实现 =======================
@@ -216,6 +275,7 @@ bool U1ArmDriver::on_movej(const std::vector<double> & joint, uint8_t speed, boo
     RCLCPP_WARN(get_logger(), "movej 关节数 %zu != %zu", joint.size(), motor_cfgs_.size());
     return false;
   }
+  motors_->set_arm_mode(protocol::CtrlMode::kMit);   // 规划类运动走 MIT
   if (!exec_->start_movej(joint, speed)) {return false;}
   if (block) {
     return exec_->wait_motion_done(
@@ -227,6 +287,7 @@ bool U1ArmDriver::on_movej(const std::vector<double> & joint, uint8_t speed, boo
 bool U1ArmDriver::on_movej_canfd(const std::vector<double> & joint)
 {
   if (joint.size() != motor_cfgs_.size()) {return false;}
+  motors_->set_arm_mode(protocol::CtrlMode::kPosVel);   // 透传走位置速度模式
   return exec_->passthrough(joint);
 }
 
@@ -284,6 +345,7 @@ void U1ArmDriver::setup_motion_topics()
   add_bool_cmd<msgs::Jointteach>(
     "set_joint_teach", [this](const msgs::Jointteach::SharedPtr m) {
       if (m->num < 1 || m->num > motor_cfgs_.size()) {return false;}
+      motors_->set_arm_mode(protocol::CtrlMode::kMit);   // jog 底层走 MIT
       return exec_->start_jog(m->num - 1, m->direction ? 1 : -1, m->speed);
     }, g);
   add_bool_cmd<msgs::Posteach>(

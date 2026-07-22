@@ -97,7 +97,8 @@ private:
   uint64_t motion_seq_{0};       // 轨迹代号, wait 用于识别"自己那条"是否完成
   bool last_motion_completed_{false};
   std::vector<double> hold_;     // 保持/最新 setpoint (关节侧 rad)
-  std::vector<double> vel_limit_;  // 下发的速度限幅
+  std::vector<double> prev_hold_;  // 上一拍 setpoint, 用于 MIT 速度前馈差分
+  std::vector<double> vel_limit_;  // 位置速度模式(canfd)下发的速度限幅
   Quintic quintic_;
   Sampled sampled_;
   Jog jog_;

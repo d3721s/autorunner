@@ -56,6 +56,9 @@ class FakeMotor:
         self.target_pos = 0.0
         self.target_vel_limit = 1.0
         self.err = 0x0          # 高4位状态: 0失能 1使能
+        # 忠实复现真机: 电机出厂默认 MIT 模式(1), 只有切到位置速度模式(2)后
+        # 才会响应位置速度偏移(0x100)的使能帧。ctrl_mode: 1 MIT/2 位置速度/3 速度/4 力位
+        self.ctrl_mode = 1
         self.lock = threading.Lock()
 
     def step(self, dt):
@@ -125,6 +128,9 @@ class FakeBus:
             elif cmd == 0x55:                     # 写寄存器 -> 存并回显
                 val = struct.unpack("<I", data[4:8].ljust(4, b"\x00"))[0]
                 self.registers[(target, rid)] = val
+                if rid == 0x0A:                   # CTRL_MODE
+                    with m.lock:
+                        m.ctrl_mode = val
                 self.send(m.master_id, bytes([data[0], data[1], 0x55, rid])
                           + struct.pack("<I", val))
             elif cmd == 0xAA:                     # 保存 (仅失能有效, 这里直接应答)
@@ -138,13 +144,18 @@ class FakeBus:
         if m is None or mode > 0x300:
             return
 
+        # 模式偏移 -> 对应 ctrl_mode 编码 (0x000->1 MIT, 0x100->2 位置速度, ...)
+        mode_to_ctrl = {0x000: 1, 0x100: 2, 0x200: 3, 0x300: 4}
+
         if len(data) == 8 and data[:7] == b"\xFF" * 7:
             tail = data[7]
             with m.lock:
                 if tail == 0xFC:
-                    m.enabled = True
-                    # 使能瞬间锁存当前位置为目标, 防止跳变
-                    m.target_pos = m.pos
+                    # 忠实复现: 仅当使能帧的模式偏移与电机当前 ctrl_mode 匹配时才使能
+                    if mode_to_ctrl.get(mode) == m.ctrl_mode:
+                        m.enabled = True
+                        m.target_pos = m.pos   # 锁存当前位置, 防跳变
+                    # 否则(模式不符)静默忽略, 电机保持失能 —— 即真机"使能不了"的现象
                 elif tail == 0xFD:
                     m.enabled = False
                 elif tail == 0xFE:      # 保存位置零点
@@ -162,13 +173,16 @@ class FakeBus:
                     m.target_pos = min(max(pos, -m.p_max), m.p_max)
                     m.target_vel_limit = vel
             self.send_feedback(m)
-        elif mode == 0x000 and len(data) == 8:    # MIT 帧: 仅取位置分量
+        elif mode == 0x000 and len(data) == 8:    # MIT 帧: 解位置(16b)+速度前馈(12b)
             p = (data[0] << 8) | data[1]
+            v = (data[2] << 4) | (data[3] >> 4)
             pos = p / 65535.0 * 2 * m.p_max - m.p_max
+            vel = v / 4095.0 * 2 * m.v_max - m.v_max
             with m.lock:
                 if m.enabled:
                     m.target_pos = pos
-                    m.target_vel_limit = m.v_max
+                    # 速度上限取前馈幅值(留最小值防止停滞), 使跟踪速度更接近真实
+                    m.target_vel_limit = max(abs(vel), 0.5)
             self.send_feedback(m)
         elif mode == 0x200 and len(data) >= 4:    # 速度帧
             (vel,) = struct.unpack("<f", data[:4])

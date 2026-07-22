@@ -4,9 +4,14 @@ u1_arm_driver:
     arm_dof: 5
     arm_joints: ["j1", "j2", "j3", "j4", "j5"]   # 与 URDF / joint_states 一致
 
-    can_interface: "can0"        # 达妙 USB2CAN -> SocketCAN 接口; 仿真调试用 vcan0
-    udp_cycle: 5                 # 状态发布/控制周期(ms), 5ms => 200Hz (沿用 rm 参数名)
-    auto_enable: true            # 启动即发送全部电机使能帧
+    can_interface: "can1"        # 达妙 USB2CAN -> SocketCAN 接口; 仿真调试用 vcan0
+    udp_cycle: 5                 # 状态发布周期(ms), 5ms => 200Hz (沿用 rm 参数名)
+    control_cycle_ms: 2          # 控制环周期(ms), 2ms => 500Hz。经典CAN 1Mbps 下每电机
+                                 # 一发一收, 5电机*2*500=5000fps < 6000fps 预算(见教程四)。
+                                 # 电机更多时应调低: 6电机->0.5kHz, 12电机->0.25kHz。
+    auto_enable: true            # 启动即使能, 并在看门狗中对未使能电机重试使能
+    set_mode_on_start: true      # 使能前先写 CTRL_MODE 寄存器(底层默认 MIT 模式=1);
+                                 # 电机需处于对应模式才响应该模式偏移的使能帧
     estop_disable_motors: false  # 急停默认锁存位置保持(不失能), 防机械臂跌落
 
     # 运动学链 (URDF 中的臂基座->末端 link)
@@ -31,6 +36,13 @@ u1_arm_driver:
     joint_upper: [1.7453, 1.6057, 3.1416, 3.8048, 1.5708]
     joint_vmax: [2.0, 2.0, 2.0, 2.0, 2.0]     # rad/s
     joint_amax: [5.0, 5.0, 5.0, 5.0, 5.0]     # rad/s^2
+
+    # ---- MIT 模式增益 (底层默认 MIT; 每轴 Kp 0~500, Kd 0~5) ----
+    # 力矩 = Kp*(位置误差) + Kd*(速度误差) + 前馈(0)。需现场整定:
+    #   Kp 过小抗不住重力/有稳态误差, 过大震荡; Kd 必须 >0 否则位置控制会震荡失控。
+    #   下面为保守起点(重载轴 Kp 稍大), 务必空载低增益起步逐步上调。
+    mit_kp: [30.0, 40.0, 30.0, 20.0, 15.0]
+    mit_kd: [1.5, 2.0, 1.5, 1.0, 0.8]
 
     # ---- 状态上报(镜像 rm 参数名) ----
     udp_force_coordinate: 0
