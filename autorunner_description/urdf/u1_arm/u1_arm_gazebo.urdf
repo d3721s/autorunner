@@ -602,4 +602,55 @@
       effort="0"
       velocity="0" />
   </joint>
+  <link
+    name="l6">
+    <inertial>
+      <origin
+        xyz="-8.6937E-06 5.0958E-05 -0.093519"
+        rpy="0 0 0" />
+      <mass
+        value="0" />
+      <inertia
+        ixx="0"
+        ixy="0"
+        ixz="0"
+        iyy="0"
+        iyz="0"
+        izz="0" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="1 1 1 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://u1_arm_description/meshes/u1_arm/l6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="j6"
+    type="fixed">
+    <origin
+      xyz="0.15 0 0.011"
+      rpy="-1.5708 0 -1.5708" />
+    <parent
+      link="l5" />
+    <child
+      link="l6" />
+  </joint>
 </robot>
