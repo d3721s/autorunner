@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "rclcpp/rclcpp.hpp"
+#include "rosidl_runtime_cpp/traits.hpp"
 
 #include "geometry_msgs/msg/pose.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
@@ -29,6 +30,12 @@
 
 namespace u1_arm
 {
+
+template<typename MsgT>
+std::string message_to_yaml(const MsgT & msg)
+{
+  return to_yaml(msg, true);
+}
 
 // 状态发布节点所需配置 (由命令节点声明参数后注入, 避免 yaml 重复)
 struct PublishConfig
@@ -67,23 +74,34 @@ private:
   template<typename MsgT, typename Fn>
   void add_bool_cmd(const std::string & base, Fn fn, rclcpp::CallbackGroup::SharedPtr group)
   {
+    const auto result_topic = "u1_arm/" + base + "_result";
     auto pub = create_publisher<std_msgs::msg::Bool>(
-      "u1_arm/" + base + "_result", rclcpp::ParametersQoS());
+      result_topic, rclcpp::ParametersQoS());
     bool_results_[base] = pub;
+    RCLCPP_INFO(get_logger(), "接口创建: publisher %s", result_topic.c_str());
     rclcpp::SubscriptionOptions opt;
     opt.callback_group = group;
+    const auto cmd_topic = "u1_arm/" + base + "_cmd";
     auto sub = create_subscription<MsgT>(
-      "u1_arm/" + base + "_cmd", rclcpp::ParametersQoS(),
+      cmd_topic, rclcpp::ParametersQoS(),
       [this, base, fn](const typename MsgT::SharedPtr msg) {
+        const auto yaml = message_to_yaml(*msg);
+        RCLCPP_INFO(
+          get_logger(), "topic u1_arm/%s_cmd 收到:\n%s",
+          base.c_str(), yaml.c_str());
         bool ok = false;
         try {
           ok = fn(msg);
         } catch (const std::exception & e) {
           RCLCPP_ERROR(get_logger(), "%s 回调异常: %s", base.c_str(), e.what());
         }
+        RCLCPP_INFO(
+          get_logger(), "topic u1_arm/%s_cmd 处理完成: ok=%s",
+          base.c_str(), ok ? "true" : "false");
         publish_bool(base, ok);
       }, opt);
     subs_.push_back(sub);
+    RCLCPP_INFO(get_logger(), "接口创建: subscription %s", cmd_topic.c_str());
   }
   void publish_bool(const std::string & base, bool ok);
 
@@ -93,33 +111,53 @@ private:
   {
     rclcpp::SubscriptionOptions opt;
     opt.callback_group = group;
+    const auto cmd_topic = "u1_arm/" + base + "_cmd";
     subs_.push_back(
       create_subscription<MsgT>(
-        "u1_arm/" + base + "_cmd", rclcpp::ParametersQoS(),
+        cmd_topic, rclcpp::ParametersQoS(),
         [this, base, fn](const typename MsgT::SharedPtr msg) {
+          const auto yaml = message_to_yaml(*msg);
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/%s_cmd 收到(no result):\n%s",
+            base.c_str(), yaml.c_str());
           try {
             fn(msg);
+            RCLCPP_INFO(get_logger(), "topic u1_arm/%s_cmd 处理完成(no result)", base.c_str());
           } catch (const std::exception & e) {
             RCLCPP_ERROR(get_logger(), "%s 回调异常: %s", base.c_str(), e.what());
           }
         }, opt));
+    RCLCPP_INFO(get_logger(), "接口创建: subscription %s", cmd_topic.c_str());
   }
 
   // 打桩查询: base+"_cmd"(CmdT) 触发 -> 发布默认 ResT(state=false) 到 base+"_result"
   template<typename CmdT, typename ResT>
   void add_stub_query(const std::string & base, rclcpp::CallbackGroup::SharedPtr group)
   {
-    auto pub = create_publisher<ResT>("u1_arm/" + base + "_result", rclcpp::ParametersQoS());
+    const auto result_topic = "u1_arm/" + base + "_result";
+    auto pub = create_publisher<ResT>(result_topic, rclcpp::ParametersQoS());
     other_results_[base] = pub;
+    RCLCPP_INFO(get_logger(), "接口创建: publisher %s", result_topic.c_str());
     rclcpp::SubscriptionOptions opt;
     opt.callback_group = group;
+    const auto cmd_topic = "u1_arm/" + base + "_cmd";
     subs_.push_back(
       create_subscription<CmdT>(
-        "u1_arm/" + base + "_cmd", rclcpp::ParametersQoS(),
-        [this, base, pub](const typename CmdT::SharedPtr) {
+        cmd_topic, rclcpp::ParametersQoS(),
+        [this, base, pub](const typename CmdT::SharedPtr msg) {
+          const auto yaml = message_to_yaml(*msg);
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/%s_cmd 收到(stub query):\n%s",
+            base.c_str(), yaml.c_str());
           RCLCPP_WARN_ONCE(get_logger(), "%s: u1_arm 无此硬件, 返回默认(state=false)", base.c_str());
-          pub->publish(ResT());
+          ResT res;
+          pub->publish(res);
+          const auto res_yaml = message_to_yaml(res);
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/%s_result 发布(stub query):\n%s",
+            base.c_str(), res_yaml.c_str());
         }, opt));
+    RCLCPP_INFO(get_logger(), "接口创建: subscription %s", cmd_topic.c_str());
   }
   // 打桩命令: base+"_cmd"(MsgT) 触发 -> WARN 并回 result=false
   template<typename MsgT>

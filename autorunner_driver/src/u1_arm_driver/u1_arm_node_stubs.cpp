@@ -87,15 +87,33 @@ void U1ArmDriver::setup_stub_topics()
     subs_.push_back(
       create_subscription<msgs::Forcepositionmovejoint>(
         "u1_arm/force_position_move_joint_cmd", rclcpp::ParametersQoS(),
-        [](const msgs::Forcepositionmovejoint::SharedPtr) {}, opt));
+        [this](const msgs::Forcepositionmovejoint::SharedPtr msg) {
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/force_position_move_joint_cmd 收到(stub):\n%s",
+            message_to_yaml(*msg).c_str());
+        }, opt));
+    RCLCPP_INFO(
+      get_logger(), "接口创建: subscription u1_arm/force_position_move_joint_cmd");
     subs_.push_back(
       create_subscription<msgs::Forcepositionmovepose>(
         "u1_arm/force_position_move_pose_cmd", rclcpp::ParametersQoS(),
-        [](const msgs::Forcepositionmovepose::SharedPtr) {}, opt));
+        [this](const msgs::Forcepositionmovepose::SharedPtr msg) {
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/force_position_move_pose_cmd 收到(stub):\n%s",
+            message_to_yaml(*msg).c_str());
+        }, opt));
+    RCLCPP_INFO(
+      get_logger(), "接口创建: subscription u1_arm/force_position_move_pose_cmd");
     subs_.push_back(
       create_subscription<msgs::Forcepositionmove>(
         "u1_arm/force_position_move_cmd", rclcpp::ParametersQoS(),
-        [](const msgs::Forcepositionmove::SharedPtr) {}, opt));
+        [this](const msgs::Forcepositionmove::SharedPtr msg) {
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/force_position_move_cmd 收到(stub):\n%s",
+            message_to_yaml(*msg).c_str());
+        }, opt));
+    RCLCPP_INFO(
+      get_logger(), "接口创建: subscription u1_arm/force_position_move_cmd");
   }
 
   // ---------- 六维力数据 (无传感器) ----------
@@ -119,14 +137,23 @@ void U1ArmDriver::setup_stub_topics()
     other_results_["get_zero_force_data"] = f1;
     other_results_["get_work_force_data"] = f2;
     other_results_["get_tool_force_data"] = f3;
+    RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/get_force_data_result");
+    RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/get_zero_force_data_result");
+    RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/get_work_force_data_result");
+    RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/get_tool_force_data_result");
     rclcpp::SubscriptionOptions opt; opt.callback_group = g;
     subs_.push_back(
       create_subscription<std_msgs::msg::Empty>(
         "u1_arm/get_force_data_cmd", rclcpp::ParametersQoS(),
-        [f0, f1, f2, f3](const std_msgs::msg::Empty::SharedPtr) {
+        [this, f0, f1, f2, f3](const std_msgs::msg::Empty::SharedPtr msg) {
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/get_force_data_cmd 收到(stub):\n%s",
+            message_to_yaml(*msg).c_str());
           const msgs::Sixforce z;
           f0->publish(z); f1->publish(z); f2->publish(z); f3->publish(z);
+          RCLCPP_INFO(get_logger(), "topic u1_arm/get_force_data_result 发布(stub): 四个结果均为默认值");
         }, opt));
+    RCLCPP_INFO(get_logger(), "接口创建: subscription u1_arm/get_force_data_cmd");
   }
 
   // ---------- 夹爪 ----------
@@ -200,41 +227,64 @@ void U1ArmDriver::setup_stub_topics()
     auto pub = create_publisher<msgs::RS485params>(
       "u1_arm/get_tool_rs485_mode_v4_result", rclcpp::ParametersQoS());
     other_results_["get_tool_rs485_mode_v4"] = pub;
+    RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/get_tool_rs485_mode_v4_result");
     rclcpp::SubscriptionOptions opt; opt.callback_group = g;
     subs_.push_back(
       create_subscription<std_msgs::msg::Empty>(
         "u1_arm/get_tool_rs485_mode_cmd", rclcpp::ParametersQoS(),
-        [pub](const std_msgs::msg::Empty::SharedPtr) {pub->publish(msgs::RS485params());}, opt));
+        [this, pub](const std_msgs::msg::Empty::SharedPtr msg) {
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/get_tool_rs485_mode_cmd 收到(stub):\n%s",
+            message_to_yaml(*msg).c_str());
+          msgs::RS485params res;
+          pub->publish(res);
+          RCLCPP_INFO(
+            get_logger(), "topic u1_arm/get_tool_rs485_mode_v4_result 发布(stub): 默认值");
+        }, opt));
+    RCLCPP_INFO(get_logger(), "接口创建: subscription u1_arm/get_tool_rs485_mode_cmd");
   }
 
   // ---------- 从不发布的 udp_* 状态话题 (硬件缺省关闭) ----------
   auto qos = rclcpp::QoS(10);
   other_results_["udp_six_force"] =
     create_publisher<msgs::Sixforce>("u1_arm/udp_six_force", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_six_force");
   other_results_["udp_six_zero_force"] =
     create_publisher<msgs::Sixforce>("u1_arm/udp_six_zero_force", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_six_zero_force");
   other_results_["udp_one_force"] =
     create_publisher<msgs::Sixforce>("u1_arm/udp_one_force", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_one_force");
   other_results_["udp_one_zero_force"] =
     create_publisher<msgs::Sixforce>("u1_arm/udp_one_zero_force", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_one_zero_force");
   other_results_["udp_hand_status"] =
     create_publisher<msgs::Handstatus>("u1_arm/udp_hand_status", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_hand_status");
   other_results_["udp_arm_current_status"] =
     create_publisher<msgs::Armcurrentstatus>("u1_arm/udp_arm_current_status", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_arm_current_status");
   other_results_["udp_arm_coordinate"] =
     create_publisher<std_msgs::msg::UInt16>("u1_arm/udp_arm_coordinate", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_arm_coordinate");
   other_results_["udp_rm_plus_base"] =
     create_publisher<msgs::Rmplusbase>("u1_arm/udp_rm_plus_base", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_rm_plus_base");
   other_results_["udp_rm_plus_state"] =
     create_publisher<msgs::Rmplusstate>("u1_arm/udp_rm_plus_state", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_rm_plus_state");
   other_results_["udp_lift_state"] =
     create_publisher<msgs::Udpliftstate>("u1_arm/udp_lift_state", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_lift_state");
   other_results_["udp_expand_state"] =
     create_publisher<msgs::Udpexpandstate>("u1_arm/udp_expand_state", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_expand_state");
   other_results_["udp_aloha_state"] =
     create_publisher<msgs::Alohastate>("u1_arm/udp_aloha_state", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_aloha_state");
   // udp_rm_err: watchdog 反馈超时时发布
   other_results_["udp_rm_err"] = create_publisher<msgs::Rmerr>("u1_arm/udp_rm_err", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_rm_err");
 }
 
 }  // namespace u1_arm
