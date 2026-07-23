@@ -2,6 +2,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <sstream>
+
+#include "rclcpp/rclcpp.hpp"
 
 namespace u1_arm
 {
@@ -12,6 +16,31 @@ namespace
 constexpr double kArrivalToleranceRad = 0.03;
 constexpr auto kArrivalPollPeriod = std::chrono::milliseconds(10);
 
+rclcpp::Logger logger()
+{
+  return rclcpp::get_logger("u1_arm.trajectory_executor");
+}
+
+rclcpp::Clock & log_clock()
+{
+  static rclcpp::Clock clock(RCL_SYSTEM_TIME);
+  return clock;
+}
+
+std::string format_vector(const std::vector<double> & values, int precision = 4)
+{
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(precision) << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ", ";
+    }
+    out << values[i];
+  }
+  out << "]";
+  return out.str();
+}
+
 }  // namespace
 
 TrajectoryExecutor::TrajectoryExecutor(std::shared_ptr<MotorManager> mgr, double tick_period_s)
@@ -21,12 +50,14 @@ TrajectoryExecutor::TrajectoryExecutor(std::shared_ptr<MotorManager> mgr, double
   hold_.assign(n, 0.0);
   prev_hold_.assign(n, 0.0);
   vel_limit_.assign(n, 1.0);
+  RCLCPP_INFO(logger(), "TrajectoryExecutor 创建完成: joints=%zu dt=%.6f", n, dt_);
 }
 
 void TrajectoryExecutor::set_torque_feedforward(TorqueFeedforwardFn fn)
 {
   std::lock_guard<std::mutex> lock(mutex_);
   torque_ff_fn_ = std::move(fn);
+  RCLCPP_INFO(logger(), "变量更新: torque_feedforward_fn 已设置");
 }
 
 void TrajectoryExecutor::hold_from_feedback_locked()
@@ -37,14 +68,21 @@ void TrajectoryExecutor::hold_from_feedback_locked()
   }
   prev_hold_ = hold_;   // 保持位不产生前馈速度
   hold_valid_ = true;
+  RCLCPP_INFO(logger(), "变量更新: hold_from_feedback hold=%s", format_vector(hold_).c_str());
 }
 
 void TrajectoryExecutor::finish_motion_locked(bool completed)
 {
+  const auto old_mode = mode_;
   mode_ = Mode::kIdle;
   paused_ = false;
   ++motion_seq_;
   last_motion_completed_ = completed;
+  RCLCPP_INFO(
+    logger(),
+    "运动结束: mode %d->%d completed=%s motion_seq=%lu paused=false",
+    static_cast<int>(old_mode), static_cast<int>(mode_), completed ? "true" : "false",
+    motion_seq_);
   done_cv_.notify_all();
 }
 
@@ -63,7 +101,15 @@ bool TrajectoryExecutor::feedback_matches_hold_locked() const
 bool TrajectoryExecutor::start_movej(const std::vector<double> & goal, uint8_t speed_percent)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (estopped_ || goal.size() != hold_.size()) {return false;}
+  RCLCPP_INFO(
+    logger(), "start_movej 请求: goal=%s speed=%u estopped=%s hold_size=%zu",
+    format_vector(goal).c_str(), speed_percent, estopped_ ? "true" : "false", hold_.size());
+  if (estopped_ || goal.size() != hold_.size()) {
+    RCLCPP_WARN(
+      logger(), "start_movej 拒绝: estopped=%s goal_size=%zu hold_size=%zu",
+      estopped_ ? "true" : "false", goal.size(), hold_.size());
+    return false;
+  }
 
   // 目标限位校验
   for (size_t i = 0; i < goal.size(); ++i) {
@@ -71,12 +117,18 @@ bool TrajectoryExecutor::start_movej(const std::vector<double> & goal, uint8_t s
     if (!std::isfinite(goal[i]) ||
       goal[i] < c.limit_lower - 1e-6 || goal[i] > c.limit_upper + 1e-6)
     {
+      RCLCPP_WARN(
+        logger(), "start_movej 拒绝: index=%zu goal=%.4f limit=[%.4f, %.4f]",
+        i, goal[i], c.limit_lower, c.limit_upper);
       return false;
     }
   }
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
   if (!hold_valid_) {
-    if (!mgr_->all_seen()) {return false;}
+    if (!mgr_->all_seen()) {
+      RCLCPP_WARN(logger(), "start_movej 拒绝: 尚未收到全部电机反馈");
+      return false;
+    }
     hold_from_feedback_locked();
   }
 
@@ -109,25 +161,50 @@ bool TrajectoryExecutor::start_movej(const std::vector<double> & goal, uint8_t s
   }
   mode_ = Mode::kTrajectory;
   paused_ = false;
+  RCLCPP_INFO(
+    logger(),
+    "变量更新: mode=kTrajectory paused=false quintic_duration=%.4f start=%s delta=%s "
+    "vel_limit=%s",
+    quintic_.duration, format_vector(quintic_.start).c_str(),
+    format_vector(quintic_.delta).c_str(), format_vector(vel_limit_).c_str());
   return true;
 }
 
 bool TrajectoryExecutor::start_sampled(std::vector<std::vector<double>> points)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (estopped_ || points.empty()) {return false;}
+  RCLCPP_INFO(
+    logger(), "start_sampled 请求: points=%zu estopped=%s",
+    points.size(), estopped_ ? "true" : "false");
+  if (estopped_ || points.empty()) {
+    RCLCPP_WARN(
+      logger(), "start_sampled 拒绝: estopped=%s points=%zu", estopped_ ? "true" : "false",
+      points.size());
+    return false;
+  }
   for (const auto & p : points) {
-    if (p.size() != hold_.size()) {return false;}
+    if (p.size() != hold_.size()) {
+      RCLCPP_WARN(
+        logger(), "start_sampled 拒绝: point_size=%zu hold_size=%zu",
+        p.size(), hold_.size());
+      return false;
+    }
     for (size_t i = 0; i < p.size(); ++i) {
       const auto & c = mgr_->config(i);
       if (!std::isfinite(p[i]) || p[i] < c.limit_lower - 1e-6 || p[i] > c.limit_upper + 1e-6) {
+        RCLCPP_WARN(
+          logger(), "start_sampled 拒绝: index=%zu value=%.4f limit=[%.4f, %.4f]",
+          i, p[i], c.limit_lower, c.limit_upper);
         return false;
       }
     }
   }
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
   if (!hold_valid_) {
-    if (!mgr_->all_seen()) {return false;}
+    if (!mgr_->all_seen()) {
+      RCLCPP_WARN(logger(), "start_sampled 拒绝: 尚未收到全部电机反馈");
+      return false;
+    }
     hold_from_feedback_locked();
   }
   prev_hold_ = hold_;
@@ -140,16 +217,30 @@ bool TrajectoryExecutor::start_sampled(std::vector<std::vector<double>> points)
   }
   mode_ = Mode::kSampled;
   paused_ = false;
+  RCLCPP_INFO(
+    logger(), "变量更新: mode=kSampled paused=false sampled_points=%zu vel_limit=%s",
+    sampled_.points.size(), format_vector(vel_limit_).c_str());
   return true;
 }
 
 bool TrajectoryExecutor::start_jog(size_t joint_index, int dir, uint8_t speed_percent)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (estopped_ || joint_index >= hold_.size() || dir == 0) {return false;}
+  RCLCPP_INFO(
+    logger(), "start_jog 请求: joint_index=%zu dir=%d speed=%u estopped=%s",
+    joint_index, dir, speed_percent, estopped_ ? "true" : "false");
+  if (estopped_ || joint_index >= hold_.size() || dir == 0) {
+    RCLCPP_WARN(
+      logger(), "start_jog 拒绝: estopped=%s joint_index=%zu hold_size=%zu dir=%d",
+      estopped_ ? "true" : "false", joint_index, hold_.size(), dir);
+    return false;
+  }
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
   if (!hold_valid_) {
-    if (!mgr_->all_seen()) {return false;}
+    if (!mgr_->all_seen()) {
+      RCLCPP_WARN(logger(), "start_jog 拒绝: 尚未收到全部电机反馈");
+      return false;
+    }
     hold_from_feedback_locked();
   }
 
@@ -161,6 +252,10 @@ bool TrajectoryExecutor::start_jog(size_t joint_index, int dir, uint8_t speed_pe
   vel_limit_[joint_index] = jog_.vel * 1.2;
   mode_ = Mode::kJog;
   paused_ = false;
+  RCLCPP_INFO(
+    logger(),
+    "变量更新: mode=kJog paused=false jog_joint=%zu jog_dir=%d jog_vel=%.4f vel_limit[%zu]=%.4f",
+    jog_.joint, jog_.dir, jog_.vel, joint_index, vel_limit_[joint_index]);
   return true;
 }
 
@@ -170,13 +265,24 @@ void TrajectoryExecutor::stop_jog()
   if (mode_ == Mode::kJog) {
     prev_hold_ = hold_;
     finish_motion_locked(true);
+    RCLCPP_INFO(logger(), "stop_jog: 已停止 jog hold=%s", format_vector(hold_).c_str());
+  } else {
+    RCLCPP_INFO(logger(), "stop_jog: 当前 mode=%d, 无 jog 可停止", static_cast<int>(mode_));
   }
 }
 
 bool TrajectoryExecutor::passthrough(const std::vector<double> & joints)
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (estopped_ || joints.size() != hold_.size()) {return false;}
+  RCLCPP_INFO(
+    logger(), "passthrough 请求: joints=%s estopped=%s",
+    format_vector(joints).c_str(), estopped_ ? "true" : "false");
+  if (estopped_ || joints.size() != hold_.size()) {
+    RCLCPP_WARN(
+      logger(), "passthrough 拒绝: estopped=%s joints_size=%zu hold_size=%zu",
+      estopped_ ? "true" : "false", joints.size(), hold_.size());
+    return false;
+  }
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
   for (size_t i = 0; i < joints.size(); ++i) {
     const auto & c = mgr_->config(i);
@@ -186,6 +292,9 @@ bool TrajectoryExecutor::passthrough(const std::vector<double> & joints)
   }
   prev_hold_ = hold_;
   hold_valid_ = true;
+  RCLCPP_INFO(
+    logger(), "变量更新: passthrough hold=%s vel_limit=%s hold_valid=true",
+    format_vector(hold_).c_str(), format_vector(vel_limit_).c_str());
   return true;
 }
 
@@ -195,18 +304,25 @@ void TrajectoryExecutor::stop()
   prev_hold_ = hold_;
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
   // hold_ 停在最后 setpoint, tick 继续下发 -> 电机原地保持
+  RCLCPP_INFO(logger(), "stop: prev_hold=hold=%s", format_vector(hold_).c_str());
 }
 
 void TrajectoryExecutor::pause()
 {
   std::lock_guard<std::mutex> lock(mutex_);
-  if (mode_ == Mode::kTrajectory || mode_ == Mode::kSampled) {paused_ = true;}
+  if (mode_ == Mode::kTrajectory || mode_ == Mode::kSampled) {
+    paused_ = true;
+    RCLCPP_INFO(logger(), "变量更新: paused_=true mode=%d", static_cast<int>(mode_));
+  } else {
+    RCLCPP_INFO(logger(), "pause 忽略: mode=%d", static_cast<int>(mode_));
+  }
 }
 
 void TrajectoryExecutor::resume()
 {
   std::lock_guard<std::mutex> lock(mutex_);
   paused_ = false;
+  RCLCPP_INFO(logger(), "变量更新: paused_=false mode=%d", static_cast<int>(mode_));
 }
 
 void TrajectoryExecutor::estop()
@@ -215,6 +331,9 @@ void TrajectoryExecutor::estop()
   estopped_ = true;
   prev_hold_ = hold_;
   if (mode_ != Mode::kIdle) {finish_motion_locked(false);}
+  RCLCPP_WARN(
+    logger(), "变量更新: estopped_=true prev_hold=%s mode=%d",
+    format_vector(prev_hold_).c_str(), static_cast<int>(mode_));
 }
 
 void TrajectoryExecutor::release_estop()
@@ -227,6 +346,9 @@ void TrajectoryExecutor::release_estop()
   } else {
     hold_valid_ = false;
   }
+  RCLCPP_INFO(
+    logger(), "变量更新: estopped_=false hold_valid=%s",
+    hold_valid_ ? "true" : "false");
 }
 
 bool TrajectoryExecutor::estopped() const
@@ -245,29 +367,47 @@ bool TrajectoryExecutor::wait_motion_done(std::chrono::milliseconds timeout)
 {
   const auto deadline = std::chrono::steady_clock::now() + timeout;
   std::unique_lock<std::mutex> lock(mutex_);
+  RCLCPP_INFO(
+    logger(), "wait_motion_done 开始: timeout_ms=%ld mode=%d motion_seq=%lu",
+    timeout.count(), static_cast<int>(mode_), motion_seq_);
   if (mode_ != Mode::kIdle) {
     const uint64_t seq = motion_seq_;
     if (!done_cv_.wait_until(lock, deadline, [&] {return motion_seq_ != seq;})) {
+      RCLCPP_WARN(logger(), "wait_motion_done 超时: 等待 motion_seq 变化失败");
       return false;
     }
   }
-  if (!last_motion_completed_) {return false;}
+  if (!last_motion_completed_) {
+    RCLCPP_WARN(logger(), "wait_motion_done 失败: last_motion_completed_=false");
+    return false;
+  }
 
   while (!feedback_matches_hold_locked()) {
     const auto now = std::chrono::steady_clock::now();
-    if (now >= deadline) {return false;}
+    if (now >= deadline) {
+      RCLCPP_WARN(
+        logger(), "wait_motion_done 超时: feedback 未匹配 hold=%s",
+        format_vector(hold_).c_str());
+      return false;
+    }
     auto wake = now + kArrivalPollPeriod;
     if (wake > deadline) {wake = deadline;}
-    if (done_cv_.wait_until(lock, wake, [&] {return mode_ != Mode::kIdle || estopped_; })) {
+    if (done_cv_.wait_until(lock, wake, [&] {return mode_ != Mode::kIdle || estopped_;})) {
+      RCLCPP_WARN(
+        logger(), "wait_motion_done 中断: mode=%d estopped=%s",
+        static_cast<int>(mode_), estopped_ ? "true" : "false");
       return false;
     }
   }
+  RCLCPP_INFO(logger(), "wait_motion_done 成功: hold=%s", format_vector(hold_).c_str());
   return true;
 }
 
 std::vector<double> TrajectoryExecutor::commanded() const
 {
   std::lock_guard<std::mutex> lock(mutex_);
+  RCLCPP_DEBUG_THROTTLE(
+    logger(), log_clock(), 1000, "变量读取: commanded hold=%s", format_vector(hold_).c_str());
   return hold_;
 }
 
@@ -282,6 +422,7 @@ void TrajectoryExecutor::tick()
       for (size_t i = 0; i < mgr_->size(); ++i) {
         mgr_->refresh(i);
       }
+      RCLCPP_DEBUG_THROTTLE(logger(), log_clock(), 1000, "tick: 等待首帧反馈, 已下发 refresh");
       return;
     }
     hold_from_feedback_locked();
@@ -307,11 +448,20 @@ void TrajectoryExecutor::tick()
           }
           has_planned_vel = true;
           if (quintic_.t >= quintic_.duration) {finish_motion_locked(true);}
+          RCLCPP_DEBUG_THROTTLE(
+            logger(), log_clock(), 500,
+            "变量更新: trajectory t=%.4f/%.4f hold=%s planned_vel=%s",
+            quintic_.t, quintic_.duration, format_vector(hold_).c_str(),
+            format_vector(planned_vel).c_str());
           break;
         }
       case Mode::kSampled: {
           hold_ = sampled_.points[sampled_.cursor];
           if (++sampled_.cursor >= sampled_.points.size()) {finish_motion_locked(true);}
+          RCLCPP_DEBUG_THROTTLE(
+            logger(), log_clock(), 500,
+            "变量更新: sampled cursor=%zu/%zu hold=%s",
+            sampled_.cursor, sampled_.points.size(), format_vector(hold_).c_str());
           break;
         }
       case Mode::kJog: {
@@ -323,6 +473,10 @@ void TrajectoryExecutor::tick()
           if (p <= c.limit_lower + 1e-9 || p >= c.limit_upper - 1e-9) {
             finish_motion_locked(true);
           }
+          RCLCPP_DEBUG_THROTTLE(
+            logger(), log_clock(), 500,
+            "变量更新: jog joint=%zu hold=%.4f vel=%.4f",
+            jog_.joint, hold_[jog_.joint], jog_.vel);
           break;
         }
     }
@@ -339,6 +493,9 @@ void TrajectoryExecutor::tick()
       vel_limit_[i];
   }
   prev_hold_ = hold_;
+  const auto tick_mode = mode_;
+  const bool tick_paused = paused_;
+  const bool tick_estopped = estopped_;
   lock.unlock();
 
   std::vector<double> torques(targets.size(), 0.0);
@@ -362,6 +519,11 @@ void TrajectoryExecutor::tick()
       mgr_->refresh(i);
     }
   }
+  RCLCPP_DEBUG_THROTTLE(
+    logger(), log_clock(), 500,
+    "tick 下发完成: mode=%d paused=%s estopped=%s targets=%s vels=%s torques=%s",
+    static_cast<int>(tick_mode), tick_paused ? "true" : "false", tick_estopped ? "true" : "false",
+    format_vector(targets).c_str(), format_vector(vels).c_str(), format_vector(torques).c_str());
 }
 
 }  // namespace u1_arm

@@ -22,7 +22,7 @@ namespace u1_arm
 class TrajectoryExecutor
 {
 public:
-  using TorqueFeedforwardFn = std::function<std::vector<double> (const std::vector<double> &)>;
+  using TorqueFeedforwardFn = std::function<std::vector<double>(const std::vector<double> &)>;
 
   TrajectoryExecutor(std::shared_ptr<MotorManager> mgr, double tick_period_s);
 

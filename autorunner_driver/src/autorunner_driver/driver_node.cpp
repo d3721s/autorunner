@@ -3,7 +3,9 @@
 #include <chrono>
 #include <cmath>
 #include <functional>
+#include <iomanip>
 #include <limits>
+#include <sstream>
 
 #include "autorunner_driver/protocol/frame_ids.hpp"
 
@@ -15,6 +17,62 @@ namespace proto = autorunner::protocol;
 using drivers::socketcan::CanId;
 using drivers::socketcan::FrameType;
 using drivers::socketcan::StandardFrame;
+
+namespace
+{
+
+std::string format_array6(const std::array<double, 6> & values, int precision = 4)
+{
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(precision) << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ", ";
+    }
+    out << values[i];
+  }
+  out << "]";
+  return out.str();
+}
+
+std::string format_raw_frame(const proto::RawFrame & frame)
+{
+  std::ostringstream out;
+  out << "id=0x" << std::uppercase << std::hex << frame.id << std::dec
+      << " dlc=" << static_cast<int>(frame.dlc) << " data=[";
+  for (size_t i = 0; i < std::min<size_t>(frame.dlc, frame.data.size()); ++i) {
+    if (i > 0) {
+      out << " ";
+    }
+    out << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<int>(frame.data[i]) << std::dec << std::setfill(' ');
+  }
+  out << "]";
+  return out.str();
+}
+
+std::string format_bytes(const uint8_t * data, uint8_t dlc)
+{
+  std::ostringstream out;
+  out << "[";
+  for (size_t i = 0; i < std::min<size_t>(dlc, 8); ++i) {
+    if (i > 0) {
+      out << " ";
+    }
+    out << "0x" << std::uppercase << std::hex << std::setw(2) << std::setfill('0')
+        << static_cast<int>(data[i]) << std::dec << std::setfill(' ');
+  }
+  out << "]";
+  return out.str();
+}
+
+void log_interface_created(
+  const rclcpp::Logger & logger, const char * kind, const std::string & name)
+{
+  RCLCPP_INFO(logger, "接口创建: %s %s", kind, name.c_str());
+}
+
+}  // namespace
 
 DriverNode::DriverNode(const rclcpp::NodeOptions & options)
 : rclcpp::Node("autorunner_driver", options)
@@ -47,6 +105,18 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
     std::chrono::milliseconds(declare_parameter<int>("traj_min_interval_ms", 20));
   encoder_ = std::make_unique<proto::Encoder>(control_offset);
   decoder_ = std::make_unique<proto::Decoder>(feedback_offset);
+  RCLCPP_INFO(
+    get_logger(),
+    "参数加载完成: can_interface=%s joint_count=%zu auto_enable=%s install_pos=%u "
+    "default_speed=%u high_rate=%.3f low_rate=%.3f publish_raw_frames=%s "
+    "feedback_id_offset=0x%X control_id_offset=0x%X init_retry_count=%d "
+    "response_timeout_ms=%ld motion_timeout_ms=%ld min_move_time_ms=%ld "
+    "move_joint_action=%s traj_min_interval_ms=%ld",
+    can_interface.c_str(), joint_names_.size(), auto_enable ? "true" : "false",
+    install_pos_, default_speed_, high_rate, low_rate,
+    publish_raw_frames_ ? "true" : "false", feedback_offset, control_offset,
+    init_retry_count_, response_timeout_.count(), motion_timeout_.count(),
+    min_move_time_.count(), move_joint_action_name.c_str(), traj_min_interval_.count());
 
   // ---- SocketCAN ----
   try {
@@ -86,6 +156,19 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
   if (publish_raw_frames_) {
     raw_rx_pub_ = create_publisher<can_msgs::msg::Frame>("~/raw_rx", sensor_qos);
   }
+  log_interface_created(get_logger(), "publisher", "/joint_states");
+  log_interface_created(get_logger(), "publisher", "~/arm_status");
+  log_interface_created(get_logger(), "publisher", "~/arm_position");
+  log_interface_created(get_logger(), "publisher", "~/joint_angle");
+  log_interface_created(get_logger(), "publisher", "~/joint_speed");
+  log_interface_created(get_logger(), "publisher", "~/joint_current");
+  log_interface_created(get_logger(), "publisher", "~/joint_motor_pos");
+  log_interface_created(get_logger(), "publisher", "~/joint_voltage");
+  log_interface_created(get_logger(), "publisher", "~/joint_temperature");
+  log_interface_created(get_logger(), "publisher", "~/joint_error_code");
+  if (publish_raw_frames_) {
+    log_interface_created(get_logger(), "publisher", "~/raw_rx");
+  }
 
   // ---- 订阅器 (仅急停/MIT 保持 topic) ----
   stop_sub_ = create_subscription<msgs::Stop>(
@@ -94,6 +177,8 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
   joint_mit_sub_ = create_subscription<msgs::Jointmit>(
     "~/joint_mit_cmd", reliable_qos,
     std::bind(&DriverNode::joint_mit_callback, this, std::placeholders::_1), sub_opts);
+  log_interface_created(get_logger(), "subscription", "~/stop_cmd");
+  log_interface_created(get_logger(), "subscription", "~/joint_mit_cmd");
 
   // ---- Service ----
   const auto srv_grp = service_group_;
@@ -175,6 +260,19 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
       &DriverNode::emergency_stop_service, this,
       std::placeholders::_1, std::placeholders::_2),
     rmw_qos_profile_services_default, srv_grp);
+  log_interface_created(get_logger(), "service", "~/enable_joint");
+  log_interface_created(get_logger(), "service", "~/set_joint_zero");
+  log_interface_created(get_logger(), "service", "~/clear_joint_error");
+  log_interface_created(get_logger(), "service", "~/set_joint_acc");
+  log_interface_created(get_logger(), "service", "~/query_joint_limit");
+  log_interface_created(get_logger(), "service", "~/query_joint_max_acc");
+  log_interface_created(get_logger(), "service", "~/query_end_vel_acc");
+  log_interface_created(get_logger(), "service", "~/query_collision_level");
+  log_interface_created(get_logger(), "service", "~/set_joint_limit");
+  log_interface_created(get_logger(), "service", "~/set_end_vel_acc");
+  log_interface_created(get_logger(), "service", "~/set_collision_level");
+  log_interface_created(get_logger(), "service", "~/set_motion_ctrl");
+  log_interface_created(get_logger(), "service", "~/emergency_stop");
 
   // ---- Action ----
   using namespace std::placeholders;
@@ -210,6 +308,10 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
       std::thread{std::bind(&DriverNode::execute_move_joint, this, _1), h}.detach();
     },
     rcl_action_server_get_default_options(), action_group_);
+  log_interface_created(get_logger(), "action_server", "~/move_p");
+  log_interface_created(get_logger(), "action_server", "~/move_l");
+  log_interface_created(get_logger(), "action_server", "~/move_c");
+  log_interface_created(get_logger(), "action_server", move_joint_action_name);
 
   // ---- 定时器 ----
   high_speed_timer_ = create_wall_timer(
@@ -224,6 +326,7 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
   // ---- 收帧线程 ----
   running_ = true;
   receive_thread_ = std::thread(&DriverNode::receive_loop, this);
+  RCLCPP_INFO(get_logger(), "CAN 接收线程已启动");
 
   // ---- 自动初始化 (启动 500ms 后执行一次) ----
   if (auto_enable) {
@@ -237,10 +340,12 @@ DriverNode::DriverNode(const rclcpp::NodeOptions & options)
 
 DriverNode::~DriverNode()
 {
+  RCLCPP_INFO(get_logger(), "停止 autorunner_driver 节点, 等待 CAN 接收线程退出");
   running_ = false;
   if (receive_thread_.joinable()) {
     receive_thread_.join();
   }
+  RCLCPP_INFO(get_logger(), "CAN 接收线程已退出");
 }
 
 // ---------------- CAN 收发 ----------------
@@ -253,6 +358,10 @@ void DriverNode::receive_loop()
       buf.fill(0);
       const auto can_id = receiver_->receive(buf.data(), 100ms);
       if (can_id.frame_type() != FrameType::DATA || can_id.is_extended()) {
+        RCLCPP_DEBUG_THROTTLE(
+          get_logger(), *get_clock(), 5000,
+          "忽略非标准数据 CAN 帧: id=0x%X extended=%s",
+          can_id.identifier(), can_id.is_extended() ? "true" : "false");
         continue;
       }
       dispatch(can_id.identifier(), buf.data(), static_cast<uint8_t>(can_id.length()));
@@ -272,6 +381,9 @@ void DriverNode::receive_loop()
 
 void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
 {
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000, "CAN 收到: id=0x%X dlc=%u data=%s",
+    id, dlc, format_bytes(data, dlc).c_str());
   if (publish_raw_frames_ && raw_rx_pub_) {
     can_msgs::msg::Frame raw;
     raw.header.stamp = now();
@@ -279,6 +391,8 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
     raw.dlc = dlc;
     std::copy(data, data + std::min<size_t>(dlc, 8), raw.data.begin());
     raw_rx_pub_->publish(raw);
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 1000, "topic ~/raw_rx 发布: id=0x%X dlc=%u", id, dlc);
   }
 
   const auto decoded = decoder_->decode(id, data, dlc);
@@ -296,10 +410,22 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
     msg.joint_comm_err = fb.joint_comm_err;
     msg.joint_angle_limit_err = fb.joint_angle_limit_err;
     arm_status_pub_->publish(msg);
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "topic ~/arm_status 发布: ctrl_mode=%u arm_status=%u move_mode=%u teach_status=%u "
+      "motion_status=%u trajectory_num=%u joint_comm_err=0x%02X joint_angle_limit_err=0x%02X",
+      fb.ctrl_mode, fb.arm_status, fb.move_mode, fb.teach_status, fb.motion_status,
+      fb.trajectory_num, fb.joint_comm_err, fb.joint_angle_limit_err);
     // 旁路: 更新 action 运动跟踪并唤醒 execute 线程
     if (motion_active_.load()) {
-      motion_status_.store(fb.motion_status);
-      motion_arm_status_.store(fb.arm_status);
+      const auto old_motion = motion_status_.exchange(fb.motion_status);
+      const auto old_arm = motion_arm_status_.exchange(fb.arm_status);
+      if (old_motion != fb.motion_status || old_arm != fb.arm_status) {
+        RCLCPP_INFO(
+          get_logger(),
+          "运动跟踪变量更新: motion_status %u -> %u, motion_arm_status %u -> %u",
+          old_motion, fb.motion_status, old_arm, fb.arm_status);
+      }
       motion_cv_.notify_all();
     }
     if (fb.arm_status != 0) {
@@ -313,6 +439,9 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
         last_end_pose_ = *full;
       }
+      RCLCPP_DEBUG_THROTTLE(
+        get_logger(), *get_clock(), 1000, "变量更新: last_end_pose=%s",
+        format_array6(*full).c_str());
       msgs::Armpose msg;
       msg.x = static_cast<float>((*full)[0]);
       msg.y = static_cast<float>((*full)[1]);
@@ -321,6 +450,10 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
       msg.ry = static_cast<float>((*full)[4]);
       msg.rz = static_cast<float>((*full)[5]);
       arm_position_pub_->publish(msg);
+      RCLCPP_DEBUG_THROTTLE(
+        get_logger(), *get_clock(), 1000,
+        "topic ~/arm_position 发布: x=%.4f y=%.4f z=%.4f rx=%.4f ry=%.4f rz=%.4f",
+        msg.x, msg.y, msg.z, msg.rx, msg.ry, msg.rz);
     }
   } else if (std::holds_alternative<proto::JointAnglePart>(decoded)) {
     const auto & part = std::get<proto::JointAnglePart>(decoded);
@@ -329,42 +462,78 @@ void DriverNode::dispatch(uint32_t id, const uint8_t * data, uint8_t dlc)
         std::lock_guard<std::mutex> lock(snapshot_mutex_);
         last_joint_angle_ = *full;
       }
+      RCLCPP_DEBUG_THROTTLE(
+        get_logger(), *get_clock(), 1000, "变量更新: last_joint_angle=%s",
+        format_array6(*full).c_str());
       msgs::Jointangle msg;
       for (int i = 0; i < 6; ++i) {
         msg.joint[i] = static_cast<float>((*full)[i]);
       }
       joint_angle_pub_->publish(msg);
+      RCLCPP_DEBUG_THROTTLE(
+        get_logger(), *get_clock(), 1000, "topic ~/joint_angle 发布: joint=%s",
+        format_array6(*full).c_str());
       publish_joint_states(*full);
     }
   } else if (std::holds_alternative<proto::DriverHighSpeedFb>(decoded)) {
+    const auto & fb = std::get<proto::DriverHighSpeedFb>(decoded);
     std::lock_guard<std::mutex> lock(snapshot_mutex_);
-    high_snapshot_.update(std::get<proto::DriverHighSpeedFb>(decoded));
+    high_snapshot_.update(fb);
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "变量更新: high_snapshot joint=%u speed=%.4f current=%.4f position=%.4f",
+      fb.joint_index, fb.speed, fb.current, fb.position);
   } else if (std::holds_alternative<proto::DriverLowSpeedFb>(decoded)) {
+    const auto & fb = std::get<proto::DriverLowSpeedFb>(decoded);
     std::lock_guard<std::mutex> lock(snapshot_mutex_);
-    low_snapshot_.update(std::get<proto::DriverLowSpeedFb>(decoded));
+    low_snapshot_.update(fb);
+    RCLCPP_DEBUG_THROTTLE(
+      get_logger(), *get_clock(), 1000,
+      "变量更新: low_snapshot joint=%u voltage=%.3f bus_current=%.3f driver_temp=%.1f "
+      "motor_temp=%.1f status=0x%02X",
+      fb.joint_index, fb.voltage, fb.bus_current, fb.driver_temp, fb.motor_temp, fb.status);
   } else if (std::holds_alternative<proto::JointLimitFb>(decoded)) {
     const auto & fb = std::get<proto::JointLimitFb>(decoded);
     if (fb.joint_num == expected_joint_num_limit_.load()) {
       pending_jointlimit_.notify({fb.max_angle, fb.min_angle, fb.max_speed});
+      RCLCPP_INFO(
+        get_logger(),
+        "service 应答匹配 0x473: joint=%u max_angle=%.4f min_angle=%.4f max_speed=%.4f",
+        fb.joint_num, fb.max_angle, fb.min_angle, fb.max_speed);
     }
   } else if (std::holds_alternative<proto::JointMaxAccFb>(decoded)) {
     const auto & fb = std::get<proto::JointMaxAccFb>(decoded);
     if (fb.joint_num == expected_joint_num_acc_.load()) {
       pending_jointacc_.notify({fb.max_acc});
+      RCLCPP_INFO(
+        get_logger(), "service 应答匹配 0x47C: joint=%u max_acc=%.4f",
+        fb.joint_num, fb.max_acc);
     }
   } else if (std::holds_alternative<proto::CollisionLevelFb>(decoded)) {
     const auto & fb = std::get<proto::CollisionLevelFb>(decoded);
     pending_collision_.notify({fb.level});
+    RCLCPP_INFO(
+      get_logger(), "service 应答匹配 0x47B: level=[%u, %u, %u, %u, %u, %u]",
+      fb.level[0], fb.level[1], fb.level[2], fb.level[3], fb.level[4], fb.level[5]);
   } else if (std::holds_alternative<proto::EndVelAccFb>(decoded)) {
     const auto & fb = std::get<proto::EndVelAccFb>(decoded);
     pending_endvelacc_.notify(
       {fb.max_linear_vel, fb.max_angular_vel, fb.max_linear_acc, fb.max_angular_acc});
+    RCLCPP_INFO(
+      get_logger(),
+      "service 应答匹配 0x478: max_linear_vel=%.4f max_angular_vel=%.4f "
+      "max_linear_acc=%.4f max_angular_acc=%.4f",
+      fb.max_linear_vel, fb.max_angular_vel, fb.max_linear_acc, fb.max_angular_acc);
   } else if (std::holds_alternative<proto::SetResponseFb>(decoded)) {
     const auto & fb = std::get<proto::SetResponseFb>(decoded);
     if (fb.cmd_index == 0x71) {
       pending_enable_.notify({false});
+      RCLCPP_INFO(get_logger(), "service 应答匹配 0x476: cmd_index=0x71 enable");
     } else if (fb.cmd_index == 0x75) {
       pending_setjoint_.notify({fb.zero_set_success});
+      RCLCPP_INFO(
+        get_logger(), "service 应答匹配 0x476: cmd_index=0x75 zero_set_success=%s",
+        fb.zero_set_success ? "true" : "false");
     }
   }
 }
@@ -375,6 +544,7 @@ bool DriverNode::send_frame(const proto::RawFrame & frame)
   try {
     const CanId can_id(frame.id, 0, FrameType::DATA, StandardFrame);
     sender_->send(frame.data.data(), frame.dlc, can_id, 100ms);
+    RCLCPP_DEBUG(get_logger(), "CAN 下发成功: %s", format_raw_frame(frame).c_str());
     return true;
   } catch (const std::exception & e) {
     RCLCPP_ERROR(get_logger(), "CAN 发送失败 id=0x%X: %s", frame.id, e.what());
@@ -385,9 +555,13 @@ bool DriverNode::send_frame(const proto::RawFrame & frame)
 bool DriverNode::send_frames(const std::vector<proto::RawFrame> & frames)
 {
   bool ok = true;
+  RCLCPP_DEBUG(get_logger(), "CAN 批量下发开始: frame_count=%zu", frames.size());
   for (const auto & f : frames) {
     ok = send_frame(f) && ok;
   }
+  RCLCPP_DEBUG(
+    get_logger(), "CAN 批量下发完成: frame_count=%zu ok=%s",
+    frames.size(), ok ? "true" : "false");
   return ok;
 }
 
@@ -404,6 +578,9 @@ void DriverNode::initialize_arm()
   mode_cmd.install_pos = install_pos_;
 
   for (int attempt = 1; attempt <= init_retry_count_; ++attempt) {
+    RCLCPP_INFO(
+      get_logger(), "初始化序列下发尝试 %d/%d: enable_all=true ctrl_mode=CAN install_pos=%u",
+      attempt, init_retry_count_, install_pos_);
     const bool sent = send_frame(encoder_->encode(enable_cmd)) &&
       send_frame(encoder_->encode(mode_cmd));
     if (sent) {
@@ -422,8 +599,11 @@ void DriverNode::initialize_arm()
 
 void DriverNode::stop_callback(const msgs::Stop::SharedPtr msg)
 {
+  RCLCPP_INFO(get_logger(), "topic ~/stop_cmd 收到: state=%s", msg->state ? "true" : "false");
   proto::MotionCtrlCmd cmd;
   cmd.emergency_stop = msg->state ? 0x01 : 0x02;
+  RCLCPP_INFO(
+    get_logger(), "变量下发: MotionCtrlCmd.emergency_stop=%u", cmd.emergency_stop);
   send_frame(encoder_->encode(cmd));
   if (msg->state) {
     RCLCPP_WARN(get_logger(), "已发送快速急停");
@@ -435,6 +615,7 @@ void DriverNode::stop_callback(const msgs::Stop::SharedPtr msg)
 void DriverNode::joint_mit_callback(const msgs::Jointmit::SharedPtr msg)
 {
   (void)msg;
+  RCLCPP_INFO(get_logger(), "topic ~/joint_mit_cmd 收到");
   RCLCPP_WARN_ONCE(
     get_logger(),
     "MIT 控制 (0x15A~0x15F) 尚未实现: 协议未给出定点量化范围, 待对照 Piper SDK 确认");
@@ -453,6 +634,10 @@ void DriverNode::publish_joint_states(const std::array<double, 6> & joint)
     msg.velocity.assign(high_snapshot_.speed.begin(), high_snapshot_.speed.end());
   }
   joint_states_pub_->publish(msg);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic /joint_states 发布: position=%s velocity_count=%zu",
+    format_array6(joint).c_str(), msg.velocity.size());
 }
 
 void DriverNode::high_speed_timer_callback()
@@ -471,6 +656,17 @@ void DriverNode::high_speed_timer_callback()
   joint_speed_pub_->publish(speed_msg);
   joint_current_pub_->publish(current_msg);
   joint_motor_pos_pub_->publish(pos_msg);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic ~/joint_speed ~/joint_current ~/joint_motor_pos 发布: "
+    "speed=[%.4f, %.4f, %.4f, %.4f, %.4f, %.4f] current=[%.4f, %.4f, %.4f, %.4f, %.4f, %.4f] "
+    "position=[%.4f, %.4f, %.4f, %.4f, %.4f, %.4f]",
+    speed_msg.joint_speed[0], speed_msg.joint_speed[1], speed_msg.joint_speed[2],
+    speed_msg.joint_speed[3], speed_msg.joint_speed[4], speed_msg.joint_speed[5],
+    current_msg.joint_current[0], current_msg.joint_current[1], current_msg.joint_current[2],
+    current_msg.joint_current[3], current_msg.joint_current[4], current_msg.joint_current[5],
+    pos_msg.joint_pos[0], pos_msg.joint_pos[1], pos_msg.joint_pos[2],
+    pos_msg.joint_pos[3], pos_msg.joint_pos[4], pos_msg.joint_pos[5]);
 }
 
 void DriverNode::low_speed_timer_callback()
@@ -491,6 +687,21 @@ void DriverNode::low_speed_timer_callback()
   joint_voltage_pub_->publish(voltage_msg);
   joint_temperature_pub_->publish(temp_msg);
   joint_error_code_pub_->publish(err_msg);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic ~/joint_voltage ~/joint_temperature ~/joint_error_code 发布: "
+    "voltage=[%.3f, %.3f, %.3f, %.3f, %.3f, %.3f] "
+    "driver_temp=[%.1f, %.1f, %.1f, %.1f, %.1f, %.1f] "
+    "motor_temp=[%.1f, %.1f, %.1f, %.1f, %.1f, %.1f] "
+    "error=[%u, %u, %u, %u, %u, %u]",
+    voltage_msg.voltage[0], voltage_msg.voltage[1], voltage_msg.voltage[2],
+    voltage_msg.voltage[3], voltage_msg.voltage[4], voltage_msg.voltage[5],
+    temp_msg.driver_temp[0], temp_msg.driver_temp[1], temp_msg.driver_temp[2],
+    temp_msg.driver_temp[3], temp_msg.driver_temp[4], temp_msg.driver_temp[5],
+    temp_msg.motor_temp[0], temp_msg.motor_temp[1], temp_msg.motor_temp[2],
+    temp_msg.motor_temp[3], temp_msg.motor_temp[4], temp_msg.motor_temp[5],
+    err_msg.joint_error[0], err_msg.joint_error[1], err_msg.joint_error[2],
+    err_msg.joint_error[3], err_msg.joint_error[4], err_msg.joint_error[5]);
 }
 
 void DriverNode::watchdog_callback()

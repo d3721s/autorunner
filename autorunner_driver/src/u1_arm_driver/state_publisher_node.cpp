@@ -3,6 +3,8 @@
 #include "u1_arm_driver/u1_arm_nodes.hpp"
 
 #include <chrono>
+#include <iomanip>
+#include <sstream>
 
 #include "autorunner_ros_interfaces/msg/jointenflag.hpp"
 #include "autorunner_ros_interfaces/msg/jointposeeuler.hpp"
@@ -16,6 +18,26 @@ namespace u1_arm
 {
 
 namespace msgs = autorunner_ros_interfaces::msg;
+
+namespace
+{
+
+template<typename ContainerT>
+std::string format_values(const ContainerT & values, int precision = 4)
+{
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(precision) << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ", ";
+    }
+    out << values[i];
+  }
+  out << "]";
+  return out.str();
+}
+
+}  // namespace
 
 U1StatePublisher::U1StatePublisher(
   std::shared_ptr<MotorManager> motors,
@@ -40,6 +62,15 @@ U1StatePublisher::U1StatePublisher(
     create_publisher<msgs::U1Jointerrorcode>("u1_arm/udp_joint_error_code", qos);
   joint_pose_euler_pub_ =
     create_publisher<msgs::Jointposeeuler>("u1_arm/udp_joint_pose_euler", qos);
+  RCLCPP_INFO(get_logger(), "接口创建: publisher joint_states");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_arm_position");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_speed");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_temperature");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_current");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_voltage");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_en_flag");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_error_code");
+  RCLCPP_INFO(get_logger(), "接口创建: publisher u1_arm/udp_joint_pose_euler");
 
   const auto period = std::chrono::milliseconds(std::max(1, cfg_.udp_cycle_ms));
   timer_ = create_wall_timer(period, std::bind(&U1StatePublisher::publish_tick, this));
@@ -70,6 +101,11 @@ void U1StatePublisher::publish_tick()
     js.effort[i] = states[i].torque;
   }
   joint_states_pub_->publish(js);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic joint_states 发布: names=%zu position=%s velocity=%s effort=%s",
+    js.name.size(), format_values(js.position).c_str(), format_values(js.velocity).c_str(),
+    format_values(js.effort).c_str());
 
   // 关节速度
   msgs::U1Jointspeed spd;
@@ -78,6 +114,9 @@ void U1StatePublisher::publish_tick()
     spd.joint_speed[i] = static_cast<float>(states[i].joint_vel);
   }
   std::static_pointer_cast<rclcpp::Publisher<msgs::U1Jointspeed>>(joint_speed_pub_)->publish(spd);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000, "topic u1_arm/udp_joint_speed 发布: joint_speed=%s",
+    format_values(spd.joint_speed).c_str());
 
   // 关节温度 (线圈温度)
   msgs::U1Jointtemperature temp;
@@ -87,6 +126,10 @@ void U1StatePublisher::publish_tick()
   }
   std::static_pointer_cast<rclcpp::Publisher<msgs::U1Jointtemperature>>(
     joint_temperature_pub_)->publish(temp);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_temperature 发布: joint_temperature=%s",
+    format_values(temp.joint_temperature).c_str());
 
   // 关节电流 (由扭矩粗略换算, 无电流反馈时用扭矩占位)
   msgs::U1Jointcurrent cur;
@@ -96,12 +139,20 @@ void U1StatePublisher::publish_tick()
   }
   std::static_pointer_cast<rclcpp::Publisher<msgs::U1Jointcurrent>>(
     joint_current_pub_)->publish(cur);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_current 发布: joint_current=%s",
+    format_values(cur.joint_current).c_str());
 
   // 关节电压 (达妙反馈帧无电压字段, 初版恒 0, 后续可用 0x7FF 低速轮询补)
   msgs::U1Jointvoltage volt;
   volt.joint_voltage.assign(n, 0.0f);
   std::static_pointer_cast<rclcpp::Publisher<msgs::U1Jointvoltage>>(
     joint_voltage_pub_)->publish(volt);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_voltage 发布: joint_voltage=%s",
+    format_values(volt.joint_voltage).c_str());
 
   // 使能标志
   msgs::Jointenflag en;
@@ -111,6 +162,10 @@ void U1StatePublisher::publish_tick()
   }
   std::static_pointer_cast<rclcpp::Publisher<msgs::Jointenflag>>(
     joint_en_flag_pub_)->publish(en);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_en_flag 发布: joint_en_flag=%s",
+    format_values(en.joint_en_flag, 0).c_str());
 
   // 关节错误码 (电机状态码, 使能/失能视为 0)
   msgs::U1Jointerrorcode err;
@@ -122,6 +177,10 @@ void U1StatePublisher::publish_tick()
   }
   std::static_pointer_cast<rclcpp::Publisher<msgs::U1Jointerrorcode>>(
     joint_error_code_pub_)->publish(err);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_error_code 发布: dof=%u joint_error=%s",
+    err.dof, format_values(err.joint_error, 0).c_str());
 
   // 末端位姿 (FK) —— 无运动学时发单位位姿
   geometry_msgs::msg::Pose pose;
@@ -141,6 +200,16 @@ void U1StatePublisher::publish_tick()
   arm_position_pub_->publish(pose);
   std::static_pointer_cast<rclcpp::Publisher<msgs::Jointposeeuler>>(
     joint_pose_euler_pub_)->publish(pe);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_arm_position 发布: position=(%.4f, %.4f, %.4f) "
+    "orientation=(%.4f, %.4f, %.4f, %.4f)",
+    pose.position.x, pose.position.y, pose.position.z,
+    pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w);
+  RCLCPP_DEBUG_THROTTLE(
+    get_logger(), *get_clock(), 1000,
+    "topic u1_arm/udp_joint_pose_euler 发布: position=%s euler=%s",
+    format_values(pe.position).c_str(), format_values(pe.euler).c_str());
 }
 
 }  // namespace u1_arm

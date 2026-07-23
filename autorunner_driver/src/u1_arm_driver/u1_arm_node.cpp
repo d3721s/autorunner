@@ -6,6 +6,8 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <iomanip>
+#include <sstream>
 #include <thread>
 
 #include "ament_index_cpp/get_package_share_directory.hpp"
@@ -28,6 +30,40 @@ namespace u1_arm
 using namespace std::chrono_literals;
 namespace msgs = autorunner_ros_interfaces::msg;
 
+namespace
+{
+
+std::string format_vector(const std::vector<double> & values, int precision = 4)
+{
+  std::ostringstream out;
+  out << std::fixed << std::setprecision(precision) << "[";
+  for (size_t i = 0; i < values.size(); ++i) {
+    if (i > 0) {
+      out << ", ";
+    }
+    out << values[i];
+  }
+  out << "]";
+  return out.str();
+}
+
+const char * ctrl_mode_name(protocol::CtrlMode mode)
+{
+  switch (mode) {
+    case protocol::CtrlMode::kMit:
+      return "MIT";
+    case protocol::CtrlMode::kPosVel:
+      return "PosVel";
+    case protocol::CtrlMode::kVel:
+      return "Vel";
+    case protocol::CtrlMode::kForcePos:
+      return "ForcePos";
+  }
+  return "Unknown";
+}
+
+}  // namespace
+
 U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
 : rclcpp::Node("u1_arm_driver", options)
 {
@@ -47,6 +83,16 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   const bool gravity_compensation = declare_parameter<bool>("gravity_compensation", false);
   const double gravity_compensation_scale =
     declare_parameter<double>("gravity_compensation_scale", 1.0);
+  RCLCPP_INFO(
+    get_logger(),
+    "参数加载完成: can_interface=%s auto_enable=%s set_mode_on_start=%s "
+    "estop_disable_motors=%s udp_cycle=%d control_cycle_ms=%d urdf_path=%s "
+    "base_link=%s tip_link=%s gravity_compensation=%s gravity_scale=%.3f",
+    can_interface.c_str(), auto_enable_ ? "true" : "false",
+    set_mode_on_start_ ? "true" : "false",
+    estop_disable_motors_ ? "true" : "false", udp_cycle, control_cycle,
+    urdf_path.c_str(), base_link.c_str(), tip_link.c_str(),
+    gravity_compensation ? "true" : "false", gravity_compensation_scale);
 
   motor_cfgs_ = load_motor_configs();
 
@@ -57,6 +103,11 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   pub_cfg_.udp_cycle_ms = udp_cycle;
   pub_cfg_.force_coordinate = declare_parameter<int>("udp_force_coordinate", 0);
   pub_cfg_.joint_speed_enable = declare_parameter<bool>("udp_joint_speed_state", true);
+  RCLCPP_INFO(
+    get_logger(),
+    "发布配置: joints=%zu udp_cycle_ms=%d force_coordinate=%d joint_speed_enable=%s",
+    pub_cfg_.joint_names.size(), pub_cfg_.udp_cycle_ms, pub_cfg_.force_coordinate,
+    pub_cfg_.joint_speed_enable ? "true" : "false");
 
   // ---- CAN 总线 + 电机管理 ----
   try {
@@ -76,6 +127,7 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   motors_ = std::make_shared<MotorManager>(motor_cfgs_, bus_);
   const double dt = std::max(1, control_cycle) / 1000.0;
   exec_ = std::make_shared<TrajectoryExecutor>(motors_, dt);
+  RCLCPP_INFO(get_logger(), "轨迹执行器创建: dt=%.6f s", dt);
 
   // ---- 运动学 (可选) ----
   std::string urdf = urdf_path;
@@ -127,10 +179,12 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   query_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   stub_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
   timer_group_ = create_callback_group(rclcpp::CallbackGroupType::MutuallyExclusive);
+  RCLCPP_INFO(get_logger(), "回调组创建完成: motion/query/stub/timer");
 
   setup_motion_topics();
   setup_query_topics();
   setup_stub_topics();
+  RCLCPP_INFO(get_logger(), "u1_arm 全部命令/查询/打桩 topic 接口创建完成");
 
   // ---- 使能 ----
   // 底层默认 MIT 模式: 电机需处于 CTRL_MODE=MIT(1) 才响应 MIT 偏移(0x000)的使能帧。
@@ -139,6 +193,9 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   if (auto_enable_) {
     if (set_mode_on_start_) {
       for (size_t i = 0; i < motors_->size(); ++i) {
+        RCLCPP_INFO(
+          get_logger(), "启动使能前写控制模式: joint=%s index=%zu mode=%s",
+          motor_cfgs_[i].joint_name.c_str(), i, ctrl_mode_name(motors_->arm_mode()));
         motors_->write_ctrl_mode(i);
         std::this_thread::sleep_for(2ms);   // 给电机处理寄存器写的时间
       }
@@ -155,6 +212,9 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
     period, std::bind(&U1ArmDriver::control_tick, this), timer_group_);
   watchdog_timer_ = create_wall_timer(
     500ms, std::bind(&U1ArmDriver::watchdog_tick, this), timer_group_);
+  RCLCPP_INFO(
+    get_logger(), "定时器创建完成: control_period_ms=%d watchdog_period_ms=500",
+    std::max(1, control_cycle));
 }
 
 std::vector<MotorConfig> U1ArmDriver::load_motor_configs()
@@ -212,6 +272,14 @@ std::vector<MotorConfig> U1ArmDriver::load_motor_configs()
         get_logger(), "[%s] mit_kd=0 且 mit_kp>0 会导致 MIT 位置控制震荡, 请设 kd>0",
         c.joint_name.c_str());
     }
+    RCLCPP_INFO(
+      get_logger(),
+      "电机配置[%zu]: joint=%s model=%s can_id=0x%02X master_id=0x%02X direction=%d "
+      "zero_offset=%.4f limit=[%.4f, %.4f] vmax=%.4f amax=%.4f mit_kp=%.3f mit_kd=%.3f "
+      "p_max=%.3f v_max=%.3f t_max=%.3f",
+      i, c.joint_name.c_str(), c.model.c_str(), c.can_id, c.master_id, c.direction,
+      c.zero_offset, c.limit_lower, c.limit_upper, c.vmax, c.amax, c.mit_kp, c.mit_kd,
+      c.limits.p_max, c.limits.v_max, c.limits.t_max);
   }
   return cfgs;
 }
@@ -223,6 +291,11 @@ void U1ArmDriver::publish_bool(const std::string & base, bool ok)
     std_msgs::msg::Bool m;
     m.data = ok;
     it->second->publish(m);
+    RCLCPP_INFO(
+      get_logger(), "topic u1_arm/%s_result 发布: data=%s",
+      base.c_str(), ok ? "true" : "false");
+  } else {
+    RCLCPP_WARN(get_logger(), "topic u1_arm/%s_result 发布失败: 未找到 publisher", base.c_str());
   }
 }
 
@@ -246,6 +319,9 @@ void U1ArmDriver::watchdog_tick()
         err.err.push_back(static_cast<int32_t>(idx + 1));
       }
       std::static_pointer_cast<rclcpp::Publisher<msgs::Rmerr>>(it->second)->publish(err);
+      RCLCPP_WARN(
+        get_logger(), "topic u1_arm/udp_rm_err 发布: err_len=%u err_count=%zu",
+        err.err_len, err.err.size());
     }
   }
 
@@ -281,6 +357,11 @@ void U1ArmDriver::watchdog_tick()
     for (size_t i = 0; i < states.size(); ++i) {
       const auto & s = states[i];
       if (s.online && !s.enabled && !protocol::status_is_fault(s.status)) {
+        RCLCPP_WARN_THROTTLE(
+          get_logger(), *get_clock(), 2000,
+          "看门狗自动重发使能: joint=%s index=%zu status=%d mode=%s",
+          motor_cfgs_[i].joint_name.c_str(), i, static_cast<int>(s.status),
+          ctrl_mode_name(motors_->arm_mode()));
         if (set_mode_on_start_) {motors_->write_ctrl_mode(i);}
         motors_->enable(i);
       }
@@ -296,20 +377,34 @@ bool U1ArmDriver::on_movej(const std::vector<double> & joint, uint8_t speed, boo
     RCLCPP_WARN(get_logger(), "movej 关节数 %zu != %zu", joint.size(), motor_cfgs_.size());
     return false;
   }
+  RCLCPP_INFO(
+    get_logger(), "变量下发: MoveJ joint=%s speed=%u block=%s",
+    format_vector(joint).c_str(), speed, block ? "true" : "false");
   motors_->set_arm_mode(protocol::CtrlMode::kMit);   // 规划类运动走 MIT
-  if (!exec_->start_movej(joint, speed)) {return false;}
+  if (!exec_->start_movej(joint, speed)) {
+    RCLCPP_WARN(get_logger(), "MoveJ 启动失败");
+    return false;
+  }
   if (block) {
-    return exec_->wait_motion_done(
+    const bool done = exec_->wait_motion_done(
       std::chrono::milliseconds(static_cast<int>(kMotionTimeoutS * 1000)));
+    RCLCPP_INFO(get_logger(), "MoveJ block 等待完成: done=%s", done ? "true" : "false");
+    return done;
   }
   return true;
 }
 
 bool U1ArmDriver::on_movej_canfd(const std::vector<double> & joint)
 {
-  if (joint.size() != motor_cfgs_.size()) {return false;}
+  RCLCPP_INFO(get_logger(), "变量下发: MoveJ CANFD joint=%s", format_vector(joint).c_str());
+  if (joint.size() != motor_cfgs_.size()) {
+    RCLCPP_WARN(get_logger(), "movej_canfd 关节数 %zu != %zu", joint.size(), motor_cfgs_.size());
+    return false;
+  }
   motors_->set_arm_mode(protocol::CtrlMode::kPosVel);   // 透传走位置速度模式
-  return exec_->passthrough(joint);
+  const bool ok = exec_->passthrough(joint);
+  RCLCPP_INFO(get_logger(), "MoveJ CANFD 透传结果: ok=%s", ok ? "true" : "false");
+  return ok;
 }
 
 void U1ArmDriver::setup_motion_topics()
