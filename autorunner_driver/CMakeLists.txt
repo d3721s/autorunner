@@ -79,6 +79,10 @@ add_executable(u1_arm_driver_node
   src/u1_arm_driver/state_publisher_node.cpp
   src/u1_arm_driver/main.cpp
 )
+set_source_files_properties(
+  src/u1_arm_driver/u1_arm_node_stubs.cpp
+  PROPERTIES COMPILE_OPTIONS "-O0"
+)
 target_link_libraries(u1_arm_driver_node u1_damiao_protocol)
 ament_target_dependencies(u1_arm_driver_node
   rclcpp

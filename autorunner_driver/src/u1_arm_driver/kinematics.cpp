@@ -58,6 +58,7 @@ Kinematics::Kinematics(
   Eigen::Matrix<double, 6, 1> weights;
   weights << 1.0, 1.0, 1.0, 0.1, 0.1, 0.1;
   ik_solver_ = std::make_unique<KDL::ChainIkSolverPos_LMA>(chain_, weights, 1e-5, 500);
+  dyn_solver_ = std::make_unique<KDL::ChainDynParam>(chain_, KDL::Vector(0.0, 0.0, -9.80665));
 }
 
 size_t Kinematics::num_joints() const
@@ -67,6 +68,7 @@ size_t Kinematics::num_joints() const
 
 Pose Kinematics::fk(const std::vector<double> & joints) const
 {
+  std::lock_guard<std::mutex> lock(solver_mutex_);
   KDL::JntArray q(joints.size());
   for (size_t i = 0; i < joints.size(); ++i) {
     q(i) = joints[i];
@@ -89,6 +91,7 @@ void Kinematics::euler_to_quat(double roll, double pitch, double yaw, Pose & out
 std::optional<std::vector<double>> Kinematics::ik(
   const Pose & target, const std::vector<double> & seed) const
 {
+  std::lock_guard<std::mutex> lock(solver_mutex_);
   const auto n = chain_.getNrOfJoints();
   KDL::JntArray q_init(n), q_out(n);
   for (size_t i = 0; i < n && i < seed.size(); ++i) {
@@ -108,6 +111,25 @@ std::optional<std::vector<double>> Kinematics::ik(
       return std::nullopt;
     }
     out[i] = v;
+  }
+  return out;
+}
+
+std::vector<double> Kinematics::gravity_torques(const std::vector<double> & joints) const
+{
+  std::lock_guard<std::mutex> lock(solver_mutex_);
+  const auto n = chain_.getNrOfJoints();
+  if (joints.size() != n || !dyn_solver_) {return {};}
+
+  KDL::JntArray q(n), g(n);
+  for (size_t i = 0; i < n; ++i) {
+    q(i) = joints[i];
+  }
+  if (dyn_solver_->JntToGravity(q, g) < 0) {return {};}
+
+  std::vector<double> out(n);
+  for (size_t i = 0; i < n; ++i) {
+    out[i] = g(i);
   }
   return out;
 }

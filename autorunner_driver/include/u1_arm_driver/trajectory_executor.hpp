@@ -9,6 +9,7 @@
 
 #include <chrono>
 #include <condition_variable>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -21,7 +22,12 @@ namespace u1_arm
 class TrajectoryExecutor
 {
 public:
+  using TorqueFeedforwardFn = std::function<std::vector<double> (const std::vector<double> &)>;
+
   TrajectoryExecutor(std::shared_ptr<MotorManager> mgr, double tick_period_s);
+
+  // 设置关节侧力矩前馈回调(N·m), tick() 会在锁外调用; 返回长度不匹配时忽略。
+  void set_torque_feedforward(TorqueFeedforwardFn fn);
 
   // ---- 运动命令 (估计被 ROS 回调线程调用; 内部加锁) ----
   // 关节空间点到点: 五次多项式、全关节同步到达。speed 1~100 缩放 vmax/amax。
@@ -84,6 +90,7 @@ private:
   // 需要持锁调用
   void hold_from_feedback_locked();
   void finish_motion_locked(bool completed);
+  bool feedback_matches_hold_locked() const;
 
   std::shared_ptr<MotorManager> mgr_;
   const double dt_;
@@ -97,8 +104,9 @@ private:
   uint64_t motion_seq_{0};       // 轨迹代号, wait 用于识别"自己那条"是否完成
   bool last_motion_completed_{false};
   std::vector<double> hold_;     // 保持/最新 setpoint (关节侧 rad)
-  std::vector<double> prev_hold_;  // 上一拍 setpoint, 用于 MIT 速度前馈差分
+  std::vector<double> prev_hold_;  // 上一拍 setpoint, 用于采样轨迹/jog 的 MIT 速度前馈差分
   std::vector<double> vel_limit_;  // 位置速度模式(canfd)下发的速度限幅
+  TorqueFeedforwardFn torque_ff_fn_;
   Quintic quintic_;
   Sampled sampled_;
   Jog jog_;

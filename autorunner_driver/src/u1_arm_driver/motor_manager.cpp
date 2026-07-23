@@ -1,6 +1,5 @@
 #include "u1_arm_driver/motor_manager.hpp"
 
-#include <algorithm>
 #include <chrono>
 #include <thread>
 
@@ -126,20 +125,21 @@ bool MotorManager::write_ctrl_mode(size_t i)
   return bus_->send(proto::encode_register_write(configs_[i].can_id, proto::kRegCtrlMode, reg));
 }
 
-bool MotorManager::drive(size_t i, double joint_pos, double joint_vel)
+bool MotorManager::drive(size_t i, double joint_pos, double joint_vel, double joint_torque_ff)
 {
   const auto & c = configs_[i];
-  const double clamped = std::clamp(joint_pos, c.limit_lower, c.limit_upper);
-  const double motor_pos = joint_to_motor(i, clamped);
+  const double motor_pos = joint_to_motor(i, joint_pos);
 
   if (arm_mode() == protocol::CtrlMode::kMit) {
-    // MIT: 位置 P=目标, 速度前馈 V=direction*关节速度, T_ff=0
+    // MIT: P/V/T_ff 均转换到电机侧; T_ff 由重力/负载补偿给出。
     const double motor_vel = c.direction * joint_vel;
+    const double motor_torque_ff = c.direction * joint_torque_ff;
     return bus_->send(
       proto::encode_mit(
         c.can_id, c.limits,
         static_cast<float>(motor_pos), static_cast<float>(motor_vel),
-        static_cast<float>(c.mit_kp), static_cast<float>(c.mit_kd), 0.0f));
+        static_cast<float>(c.mit_kp), static_cast<float>(c.mit_kd),
+        static_cast<float>(motor_torque_ff)));
   }
   // 位置速度模式: 位置 + |速度| 作为速度上限
   return bus_->send(

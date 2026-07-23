@@ -27,7 +27,7 @@
 
 | 原语 | CAN 帧 | 说明 |
 |---|---|---|
-| MIT 控制 | ID=`0x000+CANID`, data=`P(16b)+V(12b)+Kp(12b)+Kd(12b)+T_ff(12b)` | **默认运动主力帧**；P=目标角, V=速度前馈(轨迹导数), Kp/Kd 每轴可配, T_ff=0 |
+| MIT 控制 | ID=`0x000+CANID`, data=`P(16b)+V(12b)+Kp(12b)+Kd(12b)+T_ff(12b)` | **默认运动主力帧**；P=目标角, V=速度前馈(轨迹导数), Kp/Kd 每轴可配, T_ff=URDF/KDL 重力补偿(可关) |
 | 位置速度控制 | ID=`0x100+CANID`, data=`float32 位置 + float32 速度`(小端) | 仅 `movej_canfd`/`movep_canfd` 透传时用 |
 | 使能 | ID=`<偏移>+CANID`, data=`FF FF FF FF FF FF FF FC` | 在当前模式偏移使能 |
 | 失能 | ID=`<偏移>+CANID`, data=`… FD` | 零力矩 |
@@ -37,7 +37,7 @@
 | 读反馈 | ID=`0x7FF`, data=`CANID_L CANID_H 0xCC 00 …` | 失能电机查询反馈 |
 | 反馈帧(电机→驱动) | ID=`Master ID`, `D0=状态<<4\|ID低4位`, POS16/VEL12/T12, D6/D7温度 | 所有状态话题的数据源；被动式一发一收 |
 
-**500Hz 控制回路（`control_cycle_ms`=2，可配）**：每 2ms 遍历 5 个电机 —— 已使能的按**当前模式**发控制帧（MIT 帧或位置速度帧，目标=当前 setpoint，同时引出反馈）；未使能的发 **0xCC** 查询反馈。MIT 模式下速度前馈=相邻两拍 setpoint 差分/dt。经典 CAN 1Mbps 下 5 电机×2×500=5000fps，在 6000fps 预算内。**状态发布回路独立**，频率 `udp_cycle`（默认 5ms=200Hz）。
+**500Hz 控制回路（`control_cycle_ms`=2，可配）**：每 2ms 遍历 5 个电机 —— 已使能的按**当前模式**发控制帧（MIT 帧或位置速度帧，目标=当前 setpoint，同时引出反馈）；未使能的发 **0xCC** 查询反馈。MIT MoveJ 速度前馈=五次多项式解析导数，采样轨迹/jog 使用相邻 setpoint 差分；力矩前馈可由 URDF/KDL 计算重力补偿。经典 CAN 1Mbps 下 5 电机×2×500=5000fps，在 6000fps 预算内。**状态发布回路独立**，频率 `udp_cycle`（默认 5ms=200Hz）。
 
 **运行时模式切换**：默认全程 MIT；仅当收到 `movej_canfd`/`movep_canfd` 时把 5 轴切到位置速度模式（失能→写 CTRL_MODE=2→在 0x100 偏移使能），下一次 MIT 类命令再切回。仅在模式真正变化时执行（约 15ms），故急停/停止**不切模式**（就地保持最快）。
 
@@ -49,7 +49,7 @@
 
 | 接口(`u1_arm/…`) | 消息 | 作用电机 | 在电机上做了什么 |
 |---|---|---|---|
-| `movej_cmd` | U1Movej | **全部 5 轴** | 先确保 **MIT 模式**；驱动内五次多项式同步插值（`speed` 缩放 vmax/amax），控制环每 2ms(500Hz) 给 5 个电机发 **MIT 帧**（P=插值点、V=前馈、Kp/Kd 来自配置）逼近目标；限位裁剪。`block:true` 等全部到位再回 `result` |
+| `movej_cmd` | U1Movej | **全部 5 轴** | 先确保 **MIT 模式**；驱动内五次多项式同步插值（`speed` 缩放 vmax/amax），控制环每 2ms(500Hz) 给 5 个电机发 **MIT 帧**（P=插值点、V=解析速度前馈、Kp/Kd 来自配置、T_ff=重力补偿）逼近目标；限位校验。`block:true` 等反馈到位再回 `result` |
 | `movej_canfd_cmd` | Jointpos | **全部 5 轴** | **切到位置速度模式**，直接把 5 轴目标设为 setpoint，**不做规划**，控制环下发**位置速度帧**。即发即忘（**无 result**）|
 | `movej_canfd_custom_cmd` | Jointposcustom | 全部 5 轴 | 同上（位置速度模式透传）|
 | `movel_cmd` | Movel | **全部 5 轴** | 确保 MIT；末端笛卡尔直线每 2mm 插值，逐点 **KDL LMA IK**→采样轨迹，按 `control_cycle` 频率下发 **MIT 帧**。IK 失败/超限回 `false` |
