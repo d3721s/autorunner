@@ -6,10 +6,12 @@
 #define U1_ARM_DRIVER__KINEMATICS_HPP_
 
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <vector>
 
+#include "kdl/chaindynparam.hpp"
 #include "kdl/chain.hpp"
 #include "kdl/chainfksolverpos_recursive.hpp"
 #include "kdl/chainiksolverpos_lma.hpp"
@@ -45,6 +47,10 @@ public:
     const Pose & target,
     const std::vector<double> & seed) const;
 
+  // 关节侧重力补偿力矩(N·m), 使用 URDF inertial 参数和 base_link 坐标系下的重力向量。
+  // 返回空向量表示动力学求解失败或输入关节数不匹配。
+  std::vector<double> gravity_torques(const std::vector<double> & joints) const;
+
   // 直线插值: 从 start_joints 的 FK 位姿直线走到 target, 每步 step_m/step_rad,
   // 逐点 IK(种子链式传递)。任一点 IK 失败返回 nullopt。
   std::optional<std::vector<std::vector<double>>> cartesian_line(
@@ -62,6 +68,8 @@ private:
   std::unique_ptr<KDL::ChainFkSolverPos_recursive> fk_solver_;
   // LMA 权重: 位置 1.0, 姿态 0.1 —— 位置优先
   mutable std::unique_ptr<KDL::ChainIkSolverPos_LMA> ik_solver_;
+  mutable std::unique_ptr<KDL::ChainDynParam> dyn_solver_;
+  mutable std::mutex solver_mutex_;
 };
 
 }  // namespace u1_arm

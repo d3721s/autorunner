@@ -78,7 +78,8 @@ bool U1ArmDriver::run_pos_teach(uint8_t axis, uint8_t dir, uint8_t speed, bool o
 
 void U1ArmDriver::setup_query_topics()
 {
-  auto g = query_group_;
+  auto motion_g = motion_group_;
+  auto query_g = query_group_;
 
   // ---------- MoveL / MoveJP / MoveC / offset (笛卡尔) ----------
   add_bool_cmd<msgs::Movel>(
@@ -86,20 +87,20 @@ void U1ArmDriver::setup_query_topics()
       if (!kin_) {return false;}
       auto pts = kin_->cartesian_line(exec_->commanded(), to_pose(m->pose), 0.002);
       return pts && run_cartesian(std::move(*pts), m->block);
-    }, g);
+    }, motion_g);
   add_bool_cmd<msgs::Movejp>(
     "movej_p", [this](const msgs::Movejp::SharedPtr m) {
       if (!kin_) {return false;}
       auto q = kin_->ik(to_pose(m->pose), exec_->commanded());
       return q && on_movej(*q, m->speed, m->block);
-    }, g);
+    }, motion_g);
   add_bool_cmd<msgs::U1Movec>(
     "movec", [this](const msgs::U1Movec::SharedPtr m) {
       if (!kin_) {return false;}
       auto pts = kin_->cartesian_arc(
         exec_->commanded(), to_pose(m->pose_mid), to_pose(m->pose_end), 0.002, m->loop);
       return pts && run_cartesian(std::move(*pts), m->block);
-    }, g);
+    }, motion_g);
   add_bool_cmd<msgs::Moveloffset>(
     "movel_offset", [this](const msgs::Moveloffset::SharedPtr m) {
       if (!kin_) {return false;}
@@ -108,21 +109,21 @@ void U1ArmDriver::setup_query_topics()
       t.x += m->pose.position.x; t.y += m->pose.position.y; t.z += m->pose.position.z;
       auto pts = kin_->cartesian_line(exec_->commanded(), t, 0.002);
       return pts && run_cartesian(std::move(*pts), m->block);
-    }, g);
+    }, motion_g);
   // 位姿透传 (movep_canfd): rm 中无 _result, 仅订阅即发即忘
   add_cmd_noresult<msgs::Cartepos>(
     "movep_canfd", [this](const msgs::Cartepos::SharedPtr m) {
       if (!kin_) {return;}
       auto q = kin_->ik(to_pose(m->pose), exec_->commanded());
       if (q) {on_movej_canfd(*q);}
-    }, g);
+    }, motion_g);
   add_cmd_noresult<msgs::Carteposcustom>(
     "movep_canfd_custom",
     [this](const msgs::Carteposcustom::SharedPtr m) {
       if (!kin_) {return;}
       auto q = kin_->ik(to_pose(m->pose), exec_->commanded());
       if (q) {on_movej_canfd(*q);}
-    }, g);
+    }, motion_g);
 
   // ---------- 机械臂状态查询 (非 Bool 结果) ----------
   auto arm_state_pub = create_publisher<msgs::Armstate>(
@@ -133,7 +134,7 @@ void U1ArmDriver::setup_query_topics()
   other_results_["get_current_arm_original_state"] = arm_orig_pub;
 
   rclcpp::SubscriptionOptions opt;
-  opt.callback_group = g;
+  opt.callback_group = query_g;
   subs_.push_back(
     create_subscription<std_msgs::msg::Empty>(
       "u1_arm/get_current_arm_state_cmd", rclcpp::ParametersQoS(),
@@ -246,10 +247,12 @@ void U1ArmDriver::setup_query_topics()
 
   add_bool_cmd<std_msgs::msg::String>(
     "change_work_frame",
-    [this](const std_msgs::msg::String::SharedPtr m) {cur_work_frame_ = m->data; return true;}, g);
+    [this](const std_msgs::msg::String::SharedPtr m) {cur_work_frame_ = m->data; return true;},
+    query_g);
   add_bool_cmd<std_msgs::msg::String>(
     "change_tool_frame",
-    [this](const std_msgs::msg::String::SharedPtr m) {cur_tool_frame_ = m->data; return true;}, g);
+    [this](const std_msgs::msg::String::SharedPtr m) {cur_tool_frame_ = m->data; return true;},
+    query_g);
   subs_.push_back(
     create_subscription<std_msgs::msg::Empty>(
       "u1_arm/get_curr_workFrame_cmd", rclcpp::ParametersQoS(),
@@ -282,7 +285,7 @@ void U1ArmDriver::setup_query_topics()
       // 记录周期/坐标系 (发布节点周期在启动时确定, 此处仅接受并回 true)
       pub_cfg_.force_coordinate = m->force_coordinate;
       return true;
-    }, g);
+    }, query_g);
   auto rtp_pub = create_publisher<msgs::Setrealtimepush>(
     "u1_arm/get_realtime_push_result", rclcpp::ParametersQoS());
   other_results_["get_realtime_push"] = rtp_pub;

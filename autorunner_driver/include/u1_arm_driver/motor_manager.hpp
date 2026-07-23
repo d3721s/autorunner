@@ -78,11 +78,11 @@ public:
   // 按当前 arm_mode_ 写第 i 个电机的 CTRL_MODE 寄存器 (启动/重连时确保电机模式正确)
   bool write_ctrl_mode(size_t i);
 
-  // 按当前模式驱动第 i 个电机到 (关节位置, 关节速度前馈):
-  //  - MIT 模式: 发 MIT 帧 (P=目标, V=速度前馈, Kp/Kd 来自配置, T_ff=0)
+  // 按当前模式驱动第 i 个电机到 (关节位置, 关节速度前馈, 关节力矩前馈):
+  //  - MIT 模式: 发 MIT 帧 (P=目标, V=速度前馈, Kp/Kd 来自配置, T_ff=重力/负载前馈)
   //  - 位置速度模式: 发位置速度帧 (位置 + |速度| 作为速度上限)
-  // 位置裁剪到软限位; joint_vel 带符号(用于 MIT 前馈)。
-  bool drive(size_t i, double joint_pos, double joint_vel);
+  // 软限位由 TrajectoryExecutor 在命令入口处理; joint_vel/joint_torque_ff 均为关节侧符号。
+  bool drive(size_t i, double joint_pos, double joint_vel, double joint_torque_ff = 0.0);
 
   // ---- 状态 ----
   MotorState state(size_t i) const;

@@ -44,6 +44,9 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
   const auto urdf_path = declare_parameter<std::string>("urdf_path", "");
   const auto base_link = declare_parameter<std::string>("base_link", "l0");
   const auto tip_link = declare_parameter<std::string>("tip_link", "l5");
+  const bool gravity_compensation = declare_parameter<bool>("gravity_compensation", false);
+  const double gravity_compensation_scale =
+    declare_parameter<double>("gravity_compensation_scale", 1.0);
 
   motor_cfgs_ = load_motor_configs();
 
@@ -99,6 +102,24 @@ U1ArmDriver::U1ArmDriver(const rclcpp::NodeOptions & options)
     }
   } else {
     RCLCPP_WARN(get_logger(), "未找到 URDF, 笛卡尔运动(MoveL/C/JP)将不可用");
+  }
+
+  if (gravity_compensation && kin_) {
+    const double gravity_scale = gravity_compensation_scale;
+    exec_->set_torque_feedforward(
+      [this, gravity_scale](const std::vector<double> & q) {
+        auto tau = kin_ ? kin_->gravity_torques(q) : std::vector<double>{};
+        if (tau.size() != q.size()) {return std::vector<double>(q.size(), 0.0);}
+        for (auto & t : tau) {
+          t *= gravity_scale;
+        }
+        return tau;
+      });
+    RCLCPP_INFO(
+      get_logger(), "MIT 重力补偿已启用, scale=%.3f (T_ff 由 URDF/KDL 计算)",
+      gravity_scale);
+  } else if (gravity_compensation) {
+    RCLCPP_WARN(get_logger(), "请求启用重力补偿, 但 KDL/URDF 未就绪, T_ff 保持 0");
   }
 
   // ---- 回调组 ----
@@ -245,9 +266,9 @@ void U1ArmDriver::watchdog_tick()
       } else if (!states[i].enabled) {
         RCLCPP_WARN(
           get_logger(),
-          "[%s] 有反馈但未使能(状态码=%d): 若为 0(失能), 多因电机不在位置速度模式;"
-          " 用 motor_setup.py write %d 0x0A 2 && save 后重试",
-          c.joint_name.c_str(), static_cast<int>(states[i].status), c.can_id);
+          "[%s] 有反馈但未使能(状态码=%d): 若为 0(失能), 多因电机控制模式与当前驱动模式不一致;"
+          " 当前启动默认 MIT, 可检查 CTRL_MODE 寄存器和 yaml 的 set_mode_on_start",
+          c.joint_name.c_str(), static_cast<int>(states[i].status));
       } else {
         RCLCPP_INFO(get_logger(), "[%s] 已使能 ✓", c.joint_name.c_str());
       }
